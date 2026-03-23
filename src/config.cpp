@@ -42,6 +42,31 @@ std::string rating_policy_help() {
         "  black_in_band    Require only Black's rating to be inside the band.";
 }
 
+std::string to_string(BuildMode mode) {
+    switch (mode) {
+        case BuildMode::DryRun:
+            return "dry-run";
+        case BuildMode::Preflight:
+            return "preflight";
+        case BuildMode::PlanRanges:
+            return "plan-ranges";
+    }
+    return "unknown";
+}
+
+std::optional<BuildMode> parse_build_mode(const std::string& value) {
+    if (value == "dry-run") {
+        return BuildMode::DryRun;
+    }
+    if (value == "preflight") {
+        return BuildMode::Preflight;
+    }
+    if (value == "plan-ranges") {
+        return BuildMode::PlanRanges;
+    }
+    return std::nullopt;
+}
+
 std::string derive_artifact_id(const BuildConfig& config) {
     std::ostringstream builder;
     builder << "scaffold_";
@@ -49,6 +74,14 @@ std::string derive_artifact_id(const BuildConfig& config) {
     builder << "_" << to_string(*config.rating_policy);
     builder << "_ply" << config.retained_ply;
     builder << "_g" << config.max_games;
+    if (config.mode != BuildMode::DryRun) {
+        builder << "_" << to_string(config.mode);
+        builder << "_r" << config.target_range_bytes;
+        builder << "_b" << config.boundary_scan_bytes;
+        if (config.max_ranges > 0) {
+            builder << "_m" << config.max_ranges;
+        }
+    }
     return builder.str();
 }
 
@@ -73,13 +106,27 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.progress_interval < 1) {
         errors.emplace_back("--progress-interval must be at least 1.");
     }
-    if (config.dry_run) {
-        if (config.input_pgn.empty()) {
-            errors.emplace_back("--input-pgn is required for --dry-run.");
-        }
-        if (config.output_dir.empty()) {
-            errors.emplace_back("--output-dir is required for --dry-run.");
-        }
+    if (config.target_range_bytes == 0) {
+        errors.emplace_back("--target-range-bytes must be greater than 0.");
+    }
+    if (config.boundary_scan_bytes == 0) {
+        errors.emplace_back("--boundary-scan-bytes must be greater than 0.");
+    }
+    if (config.max_ranges < 0) {
+        errors.emplace_back("--max-ranges must be greater than or equal to 0.");
+    }
+    if (config.input_format != "pgn") {
+        errors.emplace_back("--input-format currently only supports 'pgn'.");
+    }
+
+    const bool input_required = config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges;
+    const bool output_required = config.dry_run || config.mode == BuildMode::PlanRanges;
+
+    if (input_required && config.input_pgn.empty()) {
+        errors.emplace_back("--input-pgn is required for the selected build mode.");
+    }
+    if (output_required && config.output_dir.empty()) {
+        errors.emplace_back("--output-dir is required for the selected build mode.");
     }
 
     return errors;

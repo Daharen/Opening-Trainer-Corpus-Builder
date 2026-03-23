@@ -13,6 +13,9 @@ add_executable(opening-trainer-corpus-builder
     src/manifest.cpp
     src/bundle_writer.cpp
     src/build_plan.cpp
+    src/preflight.cpp
+    src/source_boundaries.cpp
+    src/range_plan.cpp
 )
 
 target_include_directories(opening-trainer-corpus-builder
