@@ -72,7 +72,7 @@ CliParseResult parse_cli(int argc, char** argv) {
             if (arg == "--mode") {
                 const auto parsed = parse_build_mode(require_value(argc, argv, index, arg));
                 if (!parsed.has_value()) {
-                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges.");
+                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges, scan-headers.");
                 }
                 result.config.mode = *parsed;
                 result.config.dry_run = result.config.mode == BuildMode::DryRun;
@@ -138,6 +138,18 @@ CliParseResult parse_cli(int argc, char** argv) {
                 result.config.emit_range_plan = true;
                 continue;
             }
+            if (arg == "--header-preview-limit") {
+                result.config.header_preview_limit = parse_int_argument(arg, require_value(argc, argv, index, arg));
+                continue;
+            }
+            if (arg == "--emit-header-preview") {
+                result.config.emit_header_preview = true;
+                continue;
+            }
+            if (arg == "--strict-header-scan") {
+                result.config.strict_header_scan = true;
+                continue;
+            }
             if (arg == "--input-format") {
                 result.config.input_format = require_value(argc, argv, index, arg);
                 continue;
@@ -161,16 +173,19 @@ CliParseResult parse_cli(int argc, char** argv) {
 void print_usage(std::ostream& stream, const std::string& program_name) {
     stream
         << "Usage: " << program_name << " [options]\n\n"
-        << "C++ corpus-builder scaffold with explicit preflight and deterministic PGN range planning. Full PGN corpus building is not yet implemented.\n\n"
+        << "C++ corpus-builder scaffold with explicit preflight, deterministic PGN range planning, and header-only game-envelope scanning. scan-headers performs header-based eligibility classification only; SAN replay and final corpus aggregation remain deferred.\n\n"
         << "Options:\n"
-        << "  --mode <dry-run|preflight|plan-ranges>  Select builder mode. Default: dry-run.\n"
-        << "  --input-pgn <path>                      Path to the source PGN file. Required for preflight, plan-ranges, and dry-run.\n"
-        << "  --output-dir <path>                     Directory where the artifact bundle will be created. Required for plan-ranges and dry-run.\n"
+        << "  --mode <dry-run|preflight|plan-ranges|scan-headers>  Select builder mode. Default: dry-run.\n"
+        << "  --input-pgn <path>                      Path to the source PGN file. Required for preflight, plan-ranges, scan-headers, and dry-run.\n"
+        << "  --output-dir <path>                     Directory where the artifact bundle will be created. Required for plan-ranges, scan-headers, and dry-run.\n"
         << "  --input-format <pgn>                    Explicit source format. Currently only 'pgn' is supported.\n"
         << "  --target-range-bytes <uint64>           Nominal target size for each planned byte range. Must be > 0.\n"
         << "  --boundary-scan-bytes <uint64>          Forward scan window used to align nonzero starts to safe boundaries. Must be > 0.\n"
         << "  --max-ranges <int>                      Optional maximum number of planned ranges. Use 0 for no explicit limit.\n"
         << "  --emit-range-plan                       Emit range plan files during preflight when explicitly requested.\n"
+        << "  --header-preview-limit <int>            Maximum preview rows to emit for scan-headers. Use 0 for no preview rows unless --emit-header-preview is set.\n"
+        << "  --emit-header-preview                   Emit bounded header preview JSONL rows during scan-headers.\n"
+        << "  --strict-header-scan                    Reject malformed or non-tag header lines during scan-headers.\n"
         << "  --min-rating <int>                      Inclusive lower rating bound.\n"
         << "  --max-rating <int>                      Inclusive upper rating bound.\n"
         << "  --rating-policy <value>                 Explicit rating eligibility policy. Required.\n"

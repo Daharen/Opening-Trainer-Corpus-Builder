@@ -3,6 +3,7 @@
 
 #include "otcb/bundle_writer.hpp"
 #include "otcb/cli.hpp"
+#include "otcb/header_scan.hpp"
 #include "otcb/preflight.hpp"
 #include "otcb/range_plan.hpp"
 
@@ -52,8 +53,18 @@ int main(int argc, char** argv) {
         const auto artifact_id = parsed.config.artifact_id.value_or(otcb::derive_artifact_id(parsed.config));
         const auto range_plan = otcb::make_range_plan(parsed.config, artifact_id, preflight);
         std::cout << otcb::render_range_plan_text(range_plan);
-        const auto result = otcb::write_plan_ranges_bundle(parsed.config, preflight, range_plan);
-        std::cout << "Range plan artifact bundle written to: " << result.bundle_root.lexically_normal().generic_string() << '\n';
+
+        if (parsed.config.mode == otcb::BuildMode::PlanRanges) {
+            const auto result = otcb::write_plan_ranges_bundle(parsed.config, preflight, range_plan);
+            std::cout << "Range plan artifact bundle written to: " << result.bundle_root.lexically_normal().generic_string() << '\n';
+            std::cout << "Artifact id: " << result.artifact_id << '\n';
+            return 0;
+        }
+
+        const auto scan_result = otcb::scan_headers(parsed.config, preflight, range_plan);
+        std::cout << otcb::render_range_execution_summary_text(parsed.config, scan_result.summary);
+        const auto result = otcb::write_scan_headers_bundle(parsed.config, preflight, range_plan, scan_result);
+        std::cout << "Header scan artifact bundle written to: " << result.bundle_root.lexically_normal().generic_string() << '\n';
         std::cout << "Artifact id: " << result.artifact_id << '\n';
         return 0;
     } catch (const std::exception& ex) {

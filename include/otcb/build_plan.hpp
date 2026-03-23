@@ -28,5 +28,6 @@ struct BuildPlan {
 BuildPlan make_dry_run_build_plan();
 BuildPlan make_preflight_build_plan(const SourcePreflightInfo& preflight_info, bool include_range_plan, const RangePlan* range_plan);
 BuildPlan make_plan_ranges_build_plan(const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
+BuildPlan make_scan_headers_build_plan(const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
 
 }  // namespace otcb

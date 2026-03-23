@@ -23,12 +23,12 @@ std::string json_escape(const std::string& input) {
 
 }  // namespace
 
-ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id) {
+ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary) {
     ManifestData manifest{
-        .artifact_schema_version = "otcb_scaffold_v2",
+        .artifact_schema_version = scan_summary ? "otcb_scaffold_v3" : "otcb_scaffold_v2",
         .artifact_id = artifact_id,
         .builder_mode = to_string(config.mode),
-        .build_status = plan.planning_completed ? "planning_complete" : (config.mode == BuildMode::DryRun ? "scaffold_complete" : "preflight_complete"),
+        .build_status = scan_summary ? "header_scan_complete" : (plan.planning_completed ? "planning_complete" : (config.mode == BuildMode::DryRun ? "scaffold_complete" : "preflight_complete")),
         .source_corpus_identity = "single_input_pgn_scaffold_source",
         .input_pgn_path = config.input_pgn.lexically_normal().generic_string(),
         .source_file_size_bytes = 0,
@@ -52,6 +52,14 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
         .range_plan_emitted = plan.range_plan.has_value(),
         .range_plan_file = plan.range_plan ? "plans/range_plan.json" : "",
         .range_count = plan.range_plan ? static_cast<int>(plan.range_plan->ranges.size()) : 0,
+        .games_scanned = scan_summary ? scan_summary->total_games_scanned : 0,
+        .games_accepted = scan_summary ? scan_summary->total_games_accepted : 0,
+        .games_rejected = scan_summary ? scan_summary->total_games_rejected : 0,
+        .header_scan_preview_emitted = scan_summary != nullptr && config.emit_header_preview,
+        .header_scan_preview_file = (scan_summary != nullptr && config.emit_header_preview) ? "data/header_scan_preview.jsonl" : "",
+        .movetext_replay_performed = false,
+        .scan_algorithm = scan_summary ? scan_summary->scan_algorithm : "not_requested",
+        .eligibility_counts = scan_summary ? scan_summary->global_rejection_counts : std::map<std::string, int>{},
         .payload_files = {"data/positions_placeholder.jsonl"},
         .payload_status = "placeholder_non_final_payload",
         .notes = {
@@ -65,6 +73,11 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
         manifest.input_pgn_path = plan.preflight_info->canonical_input_path.generic_string();
         manifest.source_file_size_bytes = plan.preflight_info->file_size_bytes;
         manifest.source_file_extension = plan.preflight_info->file_extension;
+    }
+
+    if (scan_summary != nullptr) {
+        manifest.eligibility_counts["accepted"] = scan_summary->total_games_accepted;
+        manifest.notes.push_back("scan-headers mode performs header-only eligibility classification; movetext replay remains deferred.");
     }
 
     if (!plan.warnings.empty()) {
@@ -106,6 +119,19 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"range_plan_emitted\": " << (manifest.range_plan_emitted ? "true" : "false") << ",\n";
     output << "  \"range_plan_file\": \"" << json_escape(manifest.range_plan_file) << "\",\n";
     output << "  \"range_count\": " << manifest.range_count << ",\n";
+    output << "  \"games_scanned\": " << manifest.games_scanned << ",\n";
+    output << "  \"games_accepted\": " << manifest.games_accepted << ",\n";
+    output << "  \"games_rejected\": " << manifest.games_rejected << ",\n";
+    output << "  \"header_scan_preview_emitted\": " << (manifest.header_scan_preview_emitted ? "true" : "false") << ",\n";
+    output << "  \"header_scan_preview_file\": \"" << json_escape(manifest.header_scan_preview_file) << "\",\n";
+    output << "  \"movetext_replay_performed\": " << (manifest.movetext_replay_performed ? "true" : "false") << ",\n";
+    output << "  \"scan_algorithm\": \"" << json_escape(manifest.scan_algorithm) << "\",\n";
+    output << "  \"eligibility_counts\": {\n";
+    for (auto it = manifest.eligibility_counts.begin(); it != manifest.eligibility_counts.end(); ++it) {
+        output << "    \"" << json_escape(it->first) << "\": " << it->second;
+        output << (std::next(it) != manifest.eligibility_counts.end() ? "," : "") << "\n";
+    }
+    output << "  },\n";
     output << "  \"payload_files\": [\n";
     for (std::size_t index = 0; index < manifest.payload_files.size(); ++index) {
         output << "    \"" << json_escape(manifest.payload_files[index]) << "\"";
@@ -123,7 +149,7 @@ std::string render_manifest_json(const ManifestData& manifest) {
     return output.str();
 }
 
-std::string render_build_summary(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id) {
+std::string render_build_summary(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary) {
     std::ostringstream output;
     output << "opening-trainer-corpus-builder scaffold version: 0.1.0\n";
     output << "artifact id: " << artifact_id << "\n";
@@ -145,6 +171,22 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
         output << "input format: " << plan.preflight_info->input_format << "\n";
     }
     output << "number of planned ranges: " << (plan.range_plan ? plan.range_plan->ranges.size() : 0) << "\n";
+    output << "executed range count: " << (scan_summary ? scan_summary->total_ranges_executed : 0) << "\n";
+    if (scan_summary != nullptr) {
+        output << "total games scanned: " << scan_summary->total_games_scanned << "\n";
+        output << "total accepted games: " << scan_summary->total_games_accepted << "\n";
+        output << "total rejected games: " << scan_summary->total_games_rejected << "\n";
+        output << "preview rows emitted: " << scan_summary->preview_row_count_emitted << "\n";
+        output << "movetext replay remains deferred: " << (scan_summary->movetext_replay_deferred ? "yes" : "no") << "\n";
+        output << "rejection counts by reason:\n";
+        if (scan_summary->global_rejection_counts.empty()) {
+            output << "- none\n";
+        } else {
+            for (const auto& [reason, count] : scan_summary->global_rejection_counts) {
+                output << "- " << reason << ": " << count << "\n";
+            }
+        }
+    }
     output << "dry-run scaffold only: " << (config.mode == BuildMode::DryRun ? "yes" : "no") << "\n";
     output << "build plan mode: " << plan.mode << "\n";
     if (!plan.warnings.empty()) {
