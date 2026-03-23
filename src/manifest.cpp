@@ -23,12 +23,12 @@ std::string json_escape(const std::string& input) {
 
 }  // namespace
 
-ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary, const ExtractionSummary* extraction_summary) {
+ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary, const ExtractionSummary* extraction_summary, const AggregationSummary* aggregation_summary) {
     ManifestData manifest{};
-    manifest.artifact_schema_version = extraction_summary ? "otcb_scaffold_v4" : (scan_summary ? "otcb_scaffold_v3" : "otcb_scaffold_v2");
+    manifest.artifact_schema_version = aggregation_summary ? "otcb_scaffold_v5" : (extraction_summary ? "otcb_scaffold_v4" : (scan_summary ? "otcb_scaffold_v3" : "otcb_scaffold_v2"));
     manifest.artifact_id = artifact_id;
     manifest.builder_mode = to_string(config.mode);
-    manifest.build_status = extraction_summary ? "opening_extraction_complete" : (scan_summary ? "header_scan_complete" : (plan.planning_completed ? "planning_complete" : (config.mode == BuildMode::DryRun ? "scaffold_complete" : "preflight_complete")));
+    manifest.build_status = aggregation_summary ? "aggregation_complete" : (extraction_summary ? "opening_extraction_complete" : (scan_summary ? "header_scan_complete" : (plan.planning_completed ? "planning_complete" : (config.mode == BuildMode::DryRun ? "scaffold_complete" : "preflight_complete"))));
     manifest.source_corpus_identity = "single_input_pgn_scaffold_source";
     manifest.input_pgn_path = config.input_pgn.lexically_normal().generic_string();
     manifest.input_format = config.input_format;
@@ -41,8 +41,8 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.progress_interval = config.progress_interval;
     manifest.raw_counts_preserved = true;
     manifest.effective_weights_precomputed = false;
-    manifest.position_key_format = "not_yet_implemented_scaffold_position_keys";
-    manifest.move_key_format = "not_yet_implemented_scaffold_move_keys";
+    manifest.position_key_format = config.position_key_format.has_value() ? to_string(*config.position_key_format) : "not_yet_implemented_scaffold_position_keys";
+    manifest.move_key_format = config.move_key_format.has_value() ? to_string(*config.move_key_format) : "not_yet_implemented_scaffold_move_keys";
     manifest.planner_target_range_bytes = config.target_range_bytes;
     manifest.planner_boundary_scan_bytes = config.boundary_scan_bytes;
     manifest.planner_max_ranges = config.max_ranges;
@@ -54,22 +54,19 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.header_scan_preview_file = manifest.header_scan_preview_emitted ? "data/header_scan_preview.jsonl" : "";
     manifest.extraction_preview_emitted = extraction_summary != nullptr && config.emit_extraction_preview;
     manifest.extraction_preview_file = manifest.extraction_preview_emitted ? "data/extraction_preview.jsonl" : "";
-    manifest.movetext_replay_performed = extraction_summary != nullptr;
+    manifest.aggregate_preview_emitted = aggregation_summary != nullptr && config.emit_aggregate_preview;
+    manifest.aggregate_preview_file = manifest.aggregate_preview_emitted ? "data/aggregate_preview.jsonl" : "";
+    manifest.movetext_replay_performed = extraction_summary != nullptr || aggregation_summary != nullptr;
     manifest.include_fen_snapshots = config.include_fen_snapshots;
     manifest.include_uci_moves = config.include_uci_moves;
-    manifest.extracted_sequence_file = extraction_summary ? "data/extracted_opening_sequences.jsonl" : "";
+    manifest.extracted_sequence_file = extraction_summary != nullptr || aggregation_summary != nullptr ? "data/extracted_opening_sequences.jsonl" : "";
+    manifest.aggregate_position_file = aggregation_summary ? "data/aggregated_position_move_counts.jsonl" : "";
     manifest.scan_algorithm = scan_summary ? scan_summary->scan_algorithm : "not_requested";
-    manifest.replay_algorithm = extraction_summary ? "accepted_game_streaming_tokenize_and_legal_san_replay_v1" : "not_requested";
+    manifest.replay_algorithm = extraction_summary || aggregation_summary ? "accepted_game_streaming_tokenize_and_legal_san_replay_v1" : "not_requested";
+    manifest.aggregation_algorithm = aggregation_summary ? "deterministic_position_key_then_uci_raw_count_v1" : "not_requested";
     manifest.payload_files = {"data/positions_placeholder.jsonl"};
-    if (extraction_summary) {
-        manifest.payload_files.push_back("data/extracted_opening_sequences.jsonl");
-        if (config.emit_extraction_preview) {
-            manifest.payload_files.push_back("data/extraction_preview.jsonl");
-        }
-    }
     manifest.payload_status = "placeholder_non_final_payload";
     manifest.notes = {
-        "This builder artifact still does not emit final aggregated position-to-move corpus payload counts.",
         "Deterministic range ownership and explicit rating-policy eligibility remain first-class artifact dimensions.",
     };
     if (plan.preflight_info) {
@@ -88,10 +85,33 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
         manifest.replay_attempts = extraction_summary->total_replay_attempts;
         manifest.replay_successes = extraction_summary->total_replay_successes;
         manifest.replay_failures = extraction_summary->total_replay_failures;
+        manifest.total_extracted_ply_events = extraction_summary->total_extracted_plies;
         manifest.replay_failure_counts = extraction_summary->replay_failure_counts;
+        manifest.payload_files.push_back("data/extracted_opening_sequences.jsonl");
+        if (config.emit_extraction_preview) {
+            manifest.payload_files.push_back("data/extraction_preview.jsonl");
+        }
         manifest.notes.push_back("extract-openings performs accepted-game SAN replay and early-ply extraction only; cross-game aggregation remains deferred.");
+    }
+    if (aggregation_summary) {
+        manifest.replay_attempts = aggregation_summary->total_replay_attempts;
+        manifest.replay_successes = aggregation_summary->total_replay_successes;
+        manifest.total_extracted_ply_events = aggregation_summary->total_extracted_ply_events_consumed;
+        manifest.unique_positions_emitted = aggregation_summary->total_unique_positions_emitted;
+        manifest.aggregate_move_entries_emitted = aggregation_summary->total_aggregate_move_entries_emitted;
+        manifest.raw_observations_emitted = aggregation_summary->total_raw_observations_emitted;
+        manifest.min_position_count = aggregation_summary->min_position_count;
+        manifest.payload_files.push_back("data/extracted_opening_sequences.jsonl");
+        manifest.payload_files.push_back("data/aggregated_position_move_counts.jsonl");
+        if (config.emit_aggregate_preview) {
+            manifest.payload_files.push_back("data/aggregate_preview.jsonl");
+        }
+        manifest.payload_status = "raw_aggregate_counts_present_non_final_trainer_payload";
+        manifest.notes.push_back("aggregate-counts emits raw aggregated position->move counts now, while shaping, suppression, weighting, and final trainer-side consumption remain deferred.");
     } else if (scan_summary) {
         manifest.notes.push_back("scan-headers mode performs header-only eligibility classification; movetext replay remains deferred.");
+    } else {
+        manifest.notes.push_back("This builder artifact still does not emit final aggregated position-to-move corpus payload counts.");
     }
     for (const auto& warning : plan.warnings) {
         manifest.notes.push_back("warning: " + warning);
@@ -118,6 +138,10 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"threads\": " << manifest.threads << ",\n";
     output << "  \"max_games\": " << manifest.max_games << ",\n";
     output << "  \"progress_interval\": " << manifest.progress_interval << ",\n";
+    output << "  \"raw_counts_preserved\": " << (manifest.raw_counts_preserved ? "true" : "false") << ",\n";
+    output << "  \"effective_weights_precomputed\": " << (manifest.effective_weights_precomputed ? "true" : "false") << ",\n";
+    output << "  \"position_key_format\": \"" << json_escape(manifest.position_key_format) << "\",\n";
+    output << "  \"move_key_format\": \"" << json_escape(manifest.move_key_format) << "\",\n";
     output << "  \"planner_target_range_bytes\": " << manifest.planner_target_range_bytes << ",\n";
     output << "  \"planner_boundary_scan_bytes\": " << manifest.planner_boundary_scan_bytes << ",\n";
     output << "  \"planner_max_ranges\": " << manifest.planner_max_ranges << ",\n";
@@ -131,16 +155,25 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"replay_attempts\": " << manifest.replay_attempts << ",\n";
     output << "  \"replay_successes\": " << manifest.replay_successes << ",\n";
     output << "  \"replay_failures\": " << manifest.replay_failures << ",\n";
+    output << "  \"total_extracted_ply_events\": " << manifest.total_extracted_ply_events << ",\n";
+    output << "  \"aggregate_position_file\": \"" << json_escape(manifest.aggregate_position_file) << "\",\n";
     output << "  \"header_scan_preview_emitted\": " << (manifest.header_scan_preview_emitted ? "true" : "false") << ",\n";
     output << "  \"header_scan_preview_file\": \"" << json_escape(manifest.header_scan_preview_file) << "\",\n";
     output << "  \"movetext_replay_performed\": " << (manifest.movetext_replay_performed ? "true" : "false") << ",\n";
     output << "  \"extracted_sequence_file\": \"" << json_escape(manifest.extracted_sequence_file) << "\",\n";
     output << "  \"extraction_preview_emitted\": " << (manifest.extraction_preview_emitted ? "true" : "false") << ",\n";
     output << "  \"extraction_preview_file\": \"" << json_escape(manifest.extraction_preview_file) << "\",\n";
+    output << "  \"aggregate_preview_emitted\": " << (manifest.aggregate_preview_emitted ? "true" : "false") << ",\n";
+    output << "  \"aggregate_preview_file\": \"" << json_escape(manifest.aggregate_preview_file) << "\",\n";
     output << "  \"include_fen_snapshots\": " << (manifest.include_fen_snapshots ? "true" : "false") << ",\n";
     output << "  \"include_uci_moves\": " << (manifest.include_uci_moves ? "true" : "false") << ",\n";
     output << "  \"scan_algorithm\": \"" << json_escape(manifest.scan_algorithm) << "\",\n";
     output << "  \"replay_algorithm\": \"" << json_escape(manifest.replay_algorithm) << "\",\n";
+    output << "  \"aggregation_algorithm\": \"" << json_escape(manifest.aggregation_algorithm) << "\",\n";
+    output << "  \"unique_positions_emitted\": " << manifest.unique_positions_emitted << ",\n";
+    output << "  \"aggregate_move_entries_emitted\": " << manifest.aggregate_move_entries_emitted << ",\n";
+    output << "  \"raw_observations_emitted\": " << manifest.raw_observations_emitted << ",\n";
+    output << "  \"min_position_count\": " << manifest.min_position_count << ",\n";
     output << "  \"eligibility_counts\": {\n";
     for (auto it = manifest.eligibility_counts.begin(); it != manifest.eligibility_counts.end(); ++it) {
         output << "    \"" << json_escape(it->first) << "\": " << it->second << (std::next(it) != manifest.eligibility_counts.end() ? "," : "") << "\n";
@@ -162,7 +195,7 @@ std::string render_manifest_json(const ManifestData& manifest) {
     return output.str();
 }
 
-std::string render_build_summary(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary, const ExtractionSummary* extraction_summary) {
+std::string render_build_summary(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary, const ExtractionSummary* extraction_summary, const AggregationSummary* aggregation_summary) {
     std::ostringstream output;
     output << "opening-trainer-corpus-builder scaffold version: 0.1.0\n";
     output << "artifact id: " << artifact_id << "\n";
@@ -177,16 +210,24 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
     output << "progress interval: " << config.progress_interval << "\n";
     output << "target range bytes: " << config.target_range_bytes << "\n";
     output << "boundary scan bytes: " << config.boundary_scan_bytes << "\n";
+    if (config.position_key_format.has_value()) {
+        output << "position key format: " << to_string(*config.position_key_format) << "\n";
+    }
+    if (config.move_key_format.has_value()) {
+        output << "move key format: " << to_string(*config.move_key_format) << "\n";
+    }
+    output << "min position count: " << config.min_position_count << "\n";
     output << "planning completed successfully: " << (plan.planning_completed ? "yes" : "no") << "\n";
     if (plan.preflight_info) {
-        output << "validated source file size: " << plan.preflight_info->file_size_bytes << "\n";
+        output << "source file size: " << plan.preflight_info->file_size_bytes << "\n";
         output << "source file extension: " << plan.preflight_info->file_extension << "\n";
         output << "input format: " << plan.preflight_info->input_format << "\n";
     }
     output << "number of planned ranges: " << (plan.range_plan ? plan.range_plan->ranges.size() : 0) << "\n";
-    output << "executed range count: " << (scan_summary ? scan_summary->total_ranges_executed : (extraction_summary ? extraction_summary->total_ranges_executed : 0)) << "\n";
+    output << "planner parameters: target_range_bytes=" << config.target_range_bytes << ", boundary_scan_bytes=" << config.boundary_scan_bytes << ", max_ranges=" << config.max_ranges << "\n";
+    output << "executed range count: " << (scan_summary ? scan_summary->total_ranges_executed : (extraction_summary ? extraction_summary->total_ranges_executed : (aggregation_summary ? aggregation_summary->total_ranges_executed : 0))) << "\n";
     if (scan_summary) {
-        output << "total games scanned: " << scan_summary->total_games_scanned << "\n";
+        output << "total scanned games: " << scan_summary->total_games_scanned << "\n";
         output << "total accepted games: " << scan_summary->total_games_accepted << "\n";
         output << "total rejected games: " << scan_summary->total_games_rejected << "\n";
     }
@@ -194,18 +235,18 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
         output << "replay attempts: " << extraction_summary->total_replay_attempts << "\n";
         output << "replay successes: " << extraction_summary->total_replay_successes << "\n";
         output << "replay failures: " << extraction_summary->total_replay_failures << "\n";
+        output << "total extracted ply events consumed: " << extraction_summary->total_extracted_plies << "\n";
         output << "preview rows emitted: " << extraction_summary->preview_row_count_emitted << "\n";
-        output << "include FEN snapshots: " << (config.include_fen_snapshots ? "yes" : "no") << "\n";
-        output << "include UCI moves: " << (config.include_uci_moves ? "yes" : "no") << "\n";
-        output << "replay failure counts by reason:\n";
-        if (extraction_summary->replay_failure_counts.empty()) {
-            output << "- none\n";
-        } else {
-            for (const auto& [reason, count] : extraction_summary->replay_failure_counts) {
-                output << "- " << reason << ": " << count << "\n";
-            }
-        }
         output << "aggregation remains deferred: yes\n";
+    }
+    if (aggregation_summary) {
+        output << "replay attempts: " << aggregation_summary->total_replay_attempts << "\n";
+        output << "replay successes: " << aggregation_summary->total_replay_successes << "\n";
+        output << "total extracted ply events consumed: " << aggregation_summary->total_extracted_ply_events_consumed << "\n";
+        output << "total unique positions emitted: " << aggregation_summary->total_unique_positions_emitted << "\n";
+        output << "total raw observations emitted: " << aggregation_summary->total_raw_observations_emitted << "\n";
+        output << "aggregate preview rows emitted: " << aggregation_summary->preview_row_count_emitted << "\n";
+        output << "explicit shaping remains deferred: yes\n";
     } else if (scan_summary) {
         output << "preview rows emitted: " << scan_summary->preview_row_count_emitted << "\n";
         output << "movetext replay remains deferred: " << (scan_summary->movetext_replay_deferred ? "yes" : "no") << "\n";

@@ -72,7 +72,7 @@ CliParseResult parse_cli(int argc, char** argv) {
             if (arg == "--mode") {
                 const auto parsed = parse_build_mode(require_value(argc, argv, index, arg));
                 if (!parsed.has_value()) {
-                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges, scan-headers, extract-openings.");
+                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges, scan-headers, extract-openings, aggregate-counts.");
                 }
                 result.config.mode = *parsed;
                 result.config.dry_run = result.config.mode == BuildMode::DryRun;
@@ -170,6 +170,34 @@ CliParseResult parse_cli(int argc, char** argv) {
                 result.config.include_uci_moves = true;
                 continue;
             }
+            if (arg == "--emit-aggregate-preview") {
+                result.config.emit_aggregate_preview = true;
+                continue;
+            }
+            if (arg == "--aggregate-preview-limit") {
+                result.config.aggregate_preview_limit = parse_int_argument(arg, require_value(argc, argv, index, arg));
+                continue;
+            }
+            if (arg == "--position-key-format") {
+                const auto parsed = parse_position_key_format(require_value(argc, argv, index, arg));
+                if (!parsed.has_value()) {
+                    throw std::runtime_error("Invalid value for --position-key-format. Supported: fen_normalized, fen_full.");
+                }
+                result.config.position_key_format = parsed;
+                continue;
+            }
+            if (arg == "--move-key-format") {
+                const auto parsed = parse_move_key_format(require_value(argc, argv, index, arg));
+                if (!parsed.has_value()) {
+                    throw std::runtime_error("Invalid value for --move-key-format. Supported: uci.");
+                }
+                result.config.move_key_format = parsed;
+                continue;
+            }
+            if (arg == "--min-position-count") {
+                result.config.min_position_count = parse_int_argument(arg, require_value(argc, argv, index, arg));
+                continue;
+            }
             if (arg == "--input-format") {
                 result.config.input_format = require_value(argc, argv, index, arg);
                 continue;
@@ -193,17 +221,17 @@ CliParseResult parse_cli(int argc, char** argv) {
 void print_usage(std::ostream& stream, const std::string& program_name) {
     stream
         << "Usage: " << program_name << " [options]\n\n"
-        << "C++ corpus-builder scaffold with explicit preflight, deterministic PGN range planning, and header-only game-envelope scanning. extract-openings performs accepted-game movetext replay and early-ply extraction, but final corpus aggregation remains deferred.\n\n"
+        << "C++ corpus-builder scaffold with explicit preflight, deterministic PGN range planning, header-only game-envelope scanning, accepted-game movetext replay, and raw-count-only aggregation. aggregate-counts emits inspectable position->move raw counts only; shaping, suppression, weighting, and trainer-side load semantics remain deferred.\n\n"
         << "Options:\n"
-        << "  --mode <dry-run|preflight|plan-ranges|scan-headers|extract-openings>  Select builder mode. Default: dry-run.\n"
-        << "  --input-pgn <path>                      Path to the source PGN file. Required for preflight, plan-ranges, scan-headers, and dry-run.\n"
-        << "  --output-dir <path>                     Directory where the artifact bundle will be created. Required for plan-ranges, scan-headers, and dry-run.\n"
+        << "  --mode <dry-run|preflight|plan-ranges|scan-headers|extract-openings|aggregate-counts>  Select builder mode. Default: dry-run.\n"
+        << "  --input-pgn <path>                      Path to the source PGN file. Required for preflight, plan-ranges, scan-headers, extract-openings, aggregate-counts, and dry-run.\n"
+        << "  --output-dir <path>                     Directory where the artifact bundle will be created. Required for plan-ranges, scan-headers, extract-openings, aggregate-counts, and dry-run.\n"
         << "  --input-format <pgn>                    Explicit source format. Currently only 'pgn' is supported.\n"
         << "  --target-range-bytes <uint64>           Nominal target size for each planned byte range. Must be > 0.\n"
         << "  --boundary-scan-bytes <uint64>          Forward scan window used to align nonzero starts to safe boundaries. Must be > 0.\n"
         << "  --max-ranges <int>                      Optional maximum number of planned ranges. Use 0 for no explicit limit.\n"
         << "  --emit-range-plan                       Emit range plan files during preflight when explicitly requested.\n"
-        << "  --header-preview-limit <int>            Maximum preview rows to emit for scan-headers. Use 0 for no preview rows unless --emit-header-preview is set.\n"
+        << "  --header-preview-limit <int>            Maximum preview rows to emit for scan-headers. Must be >= 0.\n"
         << "  --emit-header-preview                   Emit bounded header preview JSONL rows during scan-headers.\n"
         << "  --strict-header-scan                    Reject malformed or non-tag header lines during scan-headers.\n"
         << "  --min-rating <int>                      Inclusive lower rating bound.\n"
@@ -215,6 +243,16 @@ void print_usage(std::ostream& stream, const std::string& program_name) {
         << "  --max-games <int>                       Maximum games to consider. Must be >= 0.\n"
         << "  --artifact-id <string>                  Optional explicit artifact bundle identifier.\n"
         << "  --progress-interval <int>               Progress reporting interval. Must be >= 1.\n"
+        << "  --strict-san-replay                     Preserve explicit SAN replay strictness during extraction/aggregation.\n"
+        << "  --include-fen-snapshots                 Include FEN snapshots in extracted opening sequence rows.\n"
+        << "  --include-uci-moves                     Include UCI move encodings in extracted opening sequence rows.\n"
+        << "  --emit-extraction-preview               Emit bounded extraction preview JSONL rows during extract-openings.\n"
+        << "  --extraction-preview-limit <int>        Maximum extraction preview rows to emit when requested. Must be >= 0.\n"
+        << "  --emit-aggregate-preview                Emit bounded aggregate preview JSONL rows during aggregate-counts.\n"
+        << "  --aggregate-preview-limit <int>         Maximum aggregate preview rows to emit when requested. Must be >= 0.\n"
+        << "  --position-key-format <fen_normalized|fen_full>  Explicit aggregate position identity semantics. Required for aggregate-counts.\n"
+        << "  --move-key-format <uci>                 Explicit aggregate move identity semantics. Required for aggregate-counts.\n"
+        << "  --min-position-count <int>              Filter aggregated positions after counting. Must be >= 1.\n"
         << "  --dry-run                               Legacy alias for --mode dry-run.\n"
         << "  --help                                  Print this help message and exit.\n";
 }

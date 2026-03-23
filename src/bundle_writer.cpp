@@ -3,6 +3,7 @@
 #include <fstream>
 #include <stdexcept>
 
+#include "otcb/aggregation.hpp"
 #include "otcb/build_plan.hpp"
 #include "otcb/header_scan.hpp"
 #include "otcb/manifest.hpp"
@@ -25,7 +26,7 @@ void write_text_file(const std::filesystem::path& path, const std::string& conte
 void write_placeholder_payload(const std::filesystem::path& data_dir) {
     write_text_file(
         data_dir / "positions_placeholder.jsonl",
-        "{\"payload_status\":\"placeholder_non_final_payload\",\"record_type\":\"scaffold\",\"notes\":[\"No aggregated position-to-move payload has been generated yet.\"]}\n");
+        "{\"payload_status\":\"placeholder_non_final_payload\",\"record_type\":\"scaffold\",\"notes\":[\"Raw aggregation is not present for this mode.\"]}\n");
 }
 
 BundleWriteResult write_bundle(
@@ -37,19 +38,22 @@ BundleWriteResult write_bundle(
     const std::vector<GameEnvelope>* preview_rows = nullptr,
     const ExtractionSummary* extraction_summary = nullptr,
     const std::vector<ExtractedOpeningSequence>* sequences = nullptr,
-    const std::vector<ExtractedOpeningSequence>* extraction_preview_rows = nullptr) {
+    const std::vector<ExtractedOpeningSequence>* extraction_preview_rows = nullptr,
+    const AggregationSummary* aggregation_summary = nullptr,
+    const std::vector<AggregatedPositionRecord>* aggregate_positions = nullptr,
+    const std::vector<AggregatedPositionRecord>* aggregate_preview_rows = nullptr) {
     const std::filesystem::path bundle_root = config.output_dir / artifact_id;
     const std::filesystem::path data_dir = bundle_root / "data";
     const std::filesystem::path plans_dir = bundle_root / "plans";
 
     std::filesystem::create_directories(data_dir);
-    if (emit_range_plan_files || scan_summary != nullptr || extraction_summary != nullptr) {
+    if (emit_range_plan_files || scan_summary != nullptr || extraction_summary != nullptr || aggregation_summary != nullptr) {
         std::filesystem::create_directories(plans_dir);
     }
 
-    const ManifestData manifest = make_manifest_data(config, plan, artifact_id, scan_summary, extraction_summary);
+    const ManifestData manifest = make_manifest_data(config, plan, artifact_id, scan_summary, extraction_summary, aggregation_summary);
     write_text_file(bundle_root / "manifest.json", render_manifest_json(manifest));
-    write_text_file(bundle_root / "build_summary.txt", render_build_summary(config, plan, artifact_id, scan_summary, extraction_summary));
+    write_text_file(bundle_root / "build_summary.txt", render_build_summary(config, plan, artifact_id, scan_summary, extraction_summary, aggregation_summary));
     write_placeholder_payload(data_dir);
 
     if (emit_range_plan_files && plan.range_plan) {
@@ -72,6 +76,16 @@ BundleWriteResult write_bundle(
     }
     if (extraction_preview_rows != nullptr && config.emit_extraction_preview) {
         write_text_file(data_dir / "extraction_preview.jsonl", render_extraction_preview_jsonl(*extraction_preview_rows));
+    }
+    if (aggregation_summary != nullptr) {
+        write_text_file(plans_dir / "aggregation_summary.json", render_aggregation_summary_json(*aggregation_summary));
+        write_text_file(plans_dir / "aggregation_summary.txt", render_aggregation_summary_text(config, *aggregation_summary));
+    }
+    if (aggregate_positions != nullptr) {
+        write_text_file(data_dir / "aggregated_position_move_counts.jsonl", render_aggregated_position_move_counts_jsonl(*aggregate_positions, config));
+    }
+    if (aggregate_preview_rows != nullptr && config.emit_aggregate_preview) {
+        write_text_file(data_dir / "aggregate_preview.jsonl", render_aggregate_preview_jsonl(*aggregate_preview_rows, config));
     }
 
     return BundleWriteResult{.bundle_root = bundle_root, .artifact_id = artifact_id};
@@ -107,6 +121,12 @@ BundleWriteResult write_extract_openings_bundle(const BuildConfig& config, const
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_extract_openings_build_plan(preflight_info, range_plan);
     return write_bundle(config, plan, artifact_id, true, &extraction_result.scan_result.summary, &extraction_result.scan_result.preview_rows, &extraction_result.summary, &extraction_result.sequences, &extraction_result.preview_rows);
+}
+
+BundleWriteResult write_aggregate_counts_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const AggregationResult& aggregation_result) {
+    const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
+    const BuildPlan plan = make_aggregate_counts_build_plan(preflight_info, range_plan);
+    return write_bundle(config, plan, artifact_id, true, &aggregation_result.extraction_result.scan_result.summary, &aggregation_result.extraction_result.scan_result.preview_rows, &aggregation_result.extraction_result.summary, &aggregation_result.extraction_result.sequences, &aggregation_result.extraction_result.preview_rows, &aggregation_result.summary, &aggregation_result.positions, &aggregation_result.preview_rows);
 }
 
 }  // namespace otcb
