@@ -55,6 +55,7 @@ struct BuildConfig {
     int max_games = 0;
     std::optional<std::string> artifact_id;
     int progress_interval = 1;
+    int heartbeat_seconds = 30;
     bool dry_run = false;
     bool help_requested = false;
     BuildMode mode = BuildMode::DryRun;
@@ -76,6 +77,9 @@ struct BuildConfig {
     std::optional<MoveKeyFormat> move_key_format;
     int min_position_count = 1;
     std::string input_format = "pgn";
+    bool emit_progress_log = false;
+    bool emit_status_json = false;
+    bool quiet_progress = false;
 };
 
 std::string derive_artifact_id(const BuildConfig& config);

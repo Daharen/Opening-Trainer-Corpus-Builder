@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <sstream>
 
+#include "otcb/progress.hpp"
 #include "otcb/source_boundaries.hpp"
 
 namespace otcb {
@@ -26,7 +27,20 @@ std::string json_escape(const std::string& input) {
 
 }  // namespace
 
-RangePlan make_range_plan(const BuildConfig& config, const std::string& artifact_id, const SourcePreflightInfo& source_info) {
+RangePlan make_range_plan(const BuildConfig& config, const std::string& artifact_id, const SourcePreflightInfo& source_info, ProgressReporter* progress) {
+    if (progress) {
+        progress->stage_started(ProgressStage::PlanRanges, "planning deterministic source byte ranges", source_info.file_size_bytes);
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.ranges_planned = 0;
+            snapshot.ranges_completed = 0;
+            snapshot.nominal_starts_processed = 0;
+            snapshot.safe_boundaries_found = 0;
+            snapshot.source_bytes_scanned = 0;
+            snapshot.bytes_covered = 0;
+            snapshot.percent_complete.reset();
+        });
+    }
+
     RangePlan plan;
     plan.artifact_id = artifact_id;
     plan.source_info = source_info;
@@ -76,6 +90,19 @@ RangePlan make_range_plan(const BuildConfig& config, const std::string& artifact
             ? (nominal_end_exclusive - range.adjusted_start_byte)
             : 0;
         plan.ranges.push_back(range);
+        if (progress) {
+            progress->update([&](ProgressSnapshot& snapshot) {
+                snapshot.nominal_starts_processed += 1;
+                if (boundary.found_boundary || nominal_start == 0) {
+                    snapshot.safe_boundaries_found += 1;
+                }
+                snapshot.ranges_planned = static_cast<int>(plan.ranges.size());
+                snapshot.bytes_covered = nominal_end_exclusive;
+                snapshot.source_bytes_scanned = nominal_end_exclusive;
+                snapshot.percent_complete = source_info.file_size_bytes == 0 ? std::optional<double>{100.0} : std::optional<double>{std::min(100.0, (100.0 * static_cast<double>(nominal_end_exclusive) / static_cast<double>(source_info.file_size_bytes)))};
+                snapshot.last_event_message = "planner still active";
+            });
+        }
 
         if (nominal_end_exclusive >= source_info.file_size_bytes) {
             break;
@@ -85,6 +112,14 @@ RangePlan make_range_plan(const BuildConfig& config, const std::string& artifact
         ++range_index;
     }
 
+    if (progress) {
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.ranges_planned = static_cast<int>(plan.ranges.size());
+            snapshot.ranges_completed = static_cast<int>(plan.ranges.size());
+            snapshot.percent_complete = 100.0;
+        });
+        progress->stage_completed("range planning completed");
+    }
     return plan;
 }
 

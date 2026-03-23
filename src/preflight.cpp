@@ -5,6 +5,8 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "otcb/progress.hpp"
+
 namespace otcb {
 namespace {
 
@@ -31,7 +33,11 @@ std::optional<std::string> timestamp_to_utc(const std::filesystem::file_time_typ
 
 }  // namespace
 
-SourcePreflightInfo run_source_preflight(const BuildConfig& config) {
+SourcePreflightInfo run_source_preflight(const BuildConfig& config, ProgressReporter* progress) {
+    if (progress) {
+        progress->stage_started(ProgressStage::Preflight, "validating input path and source metadata");
+    }
+
     if (config.input_pgn.empty()) {
         throw std::runtime_error("Preflight requires a non-empty input path.");
     }
@@ -70,6 +76,15 @@ SourcePreflightInfo run_source_preflight(const BuildConfig& config) {
     const auto write_time = std::filesystem::last_write_time(canonical, error);
     if (!error) {
         info.timestamp_utc = timestamp_to_utc(write_time);
+    }
+    if (progress) {
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.source_file_size = info.file_size_bytes;
+            snapshot.source_bytes_scanned = info.file_size_bytes;
+            snapshot.bytes_covered = info.file_size_bytes;
+            snapshot.percent_complete = 100.0;
+        });
+        progress->stage_completed("preflight metadata captured");
     }
     return info;
 }

@@ -21,6 +21,12 @@ std::string json_escape(const std::string& input) {
     return escaped;
 }
 
+std::string progress_mode_string(const BuildConfig& config) {
+    return config.quiet_progress
+        ? ((config.emit_progress_log || config.emit_status_json) ? "file_only" : "suppressed")
+        : ((config.emit_progress_log || config.emit_status_json) ? "console_and_file" : "console_only");
+}
+
 }  // namespace
 
 ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary, const ExtractionSummary* extraction_summary, const AggregationSummary* aggregation_summary) {
@@ -39,6 +45,10 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.threads = config.threads;
     manifest.max_games = config.max_games;
     manifest.progress_interval = config.progress_interval;
+    manifest.heartbeat_seconds = config.heartbeat_seconds;
+    manifest.progress_log_emitted = config.emit_progress_log;
+    manifest.status_json_emitted = config.emit_status_json;
+    manifest.progress_reporting_mode = progress_mode_string(config);
     manifest.raw_counts_preserved = true;
     manifest.effective_weights_precomputed = false;
     manifest.position_key_format = config.position_key_format.has_value() ? to_string(*config.position_key_format) : "not_yet_implemented_scaffold_position_keys";
@@ -66,9 +76,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.aggregation_algorithm = aggregation_summary ? "deterministic_position_key_then_uci_raw_count_v1" : "not_requested";
     manifest.payload_files = {"data/positions_placeholder.jsonl"};
     manifest.payload_status = "placeholder_non_final_payload";
-    manifest.notes = {
-        "Deterministic range ownership and explicit rating-policy eligibility remain first-class artifact dimensions.",
-    };
+    manifest.notes = {"Deterministic range ownership and explicit rating-policy eligibility remain first-class artifact dimensions."};
     if (plan.preflight_info) {
         manifest.input_pgn_path = plan.preflight_info->canonical_input_path.generic_string();
         manifest.source_file_size_bytes = plan.preflight_info->file_size_bytes;
@@ -88,9 +96,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
         manifest.total_extracted_ply_events = extraction_summary->total_extracted_plies;
         manifest.replay_failure_counts = extraction_summary->replay_failure_counts;
         manifest.payload_files.push_back("data/extracted_opening_sequences.jsonl");
-        if (config.emit_extraction_preview) {
-            manifest.payload_files.push_back("data/extraction_preview.jsonl");
-        }
+        if (config.emit_extraction_preview) manifest.payload_files.push_back("data/extraction_preview.jsonl");
         manifest.notes.push_back("extract-openings performs accepted-game SAN replay and early-ply extraction only; cross-game aggregation remains deferred.");
     }
     if (aggregation_summary) {
@@ -103,9 +109,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
         manifest.min_position_count = aggregation_summary->min_position_count;
         manifest.payload_files.push_back("data/extracted_opening_sequences.jsonl");
         manifest.payload_files.push_back("data/aggregated_position_move_counts.jsonl");
-        if (config.emit_aggregate_preview) {
-            manifest.payload_files.push_back("data/aggregate_preview.jsonl");
-        }
+        if (config.emit_aggregate_preview) manifest.payload_files.push_back("data/aggregate_preview.jsonl");
         manifest.payload_status = "raw_aggregate_counts_present_non_final_trainer_payload";
         manifest.notes.push_back("aggregate-counts emits raw aggregated position->move counts now, while shaping, suppression, weighting, and final trainer-side consumption remain deferred.");
     } else if (scan_summary) {
@@ -113,9 +117,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     } else {
         manifest.notes.push_back("This builder artifact still does not emit final aggregated position-to-move corpus payload counts.");
     }
-    for (const auto& warning : plan.warnings) {
-        manifest.notes.push_back("warning: " + warning);
-    }
+    for (const auto& warning : plan.warnings) manifest.notes.push_back("warning: " + warning);
     return manifest;
 }
 
@@ -138,6 +140,10 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"threads\": " << manifest.threads << ",\n";
     output << "  \"max_games\": " << manifest.max_games << ",\n";
     output << "  \"progress_interval\": " << manifest.progress_interval << ",\n";
+    output << "  \"heartbeat_seconds\": " << manifest.heartbeat_seconds << ",\n";
+    output << "  \"progress_log_emitted\": " << (manifest.progress_log_emitted ? "true" : "false") << ",\n";
+    output << "  \"status_json_emitted\": " << (manifest.status_json_emitted ? "true" : "false") << ",\n";
+    output << "  \"progress_reporting_mode\": \"" << json_escape(manifest.progress_reporting_mode) << "\",\n";
     output << "  \"raw_counts_preserved\": " << (manifest.raw_counts_preserved ? "true" : "false") << ",\n";
     output << "  \"effective_weights_precomputed\": " << (manifest.effective_weights_precomputed ? "true" : "false") << ",\n";
     output << "  \"position_key_format\": \"" << json_escape(manifest.position_key_format) << "\",\n";
@@ -208,14 +214,14 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
     output << "threads: " << config.threads << "\n";
     output << "max games: " << config.max_games << "\n";
     output << "progress interval: " << config.progress_interval << "\n";
+    output << "heartbeat cadence seconds: " << config.heartbeat_seconds << "\n";
+    output << "progress log emitted: " << (config.emit_progress_log ? "yes" : "no") << "\n";
+    output << "rolling status json emitted: " << (config.emit_status_json ? "yes" : "no") << "\n";
+    output << "progress reporting mode: " << progress_mode_string(config) << "\n";
     output << "target range bytes: " << config.target_range_bytes << "\n";
     output << "boundary scan bytes: " << config.boundary_scan_bytes << "\n";
-    if (config.position_key_format.has_value()) {
-        output << "position key format: " << to_string(*config.position_key_format) << "\n";
-    }
-    if (config.move_key_format.has_value()) {
-        output << "move key format: " << to_string(*config.move_key_format) << "\n";
-    }
+    if (config.position_key_format.has_value()) output << "position key format: " << to_string(*config.position_key_format) << "\n";
+    if (config.move_key_format.has_value()) output << "move key format: " << to_string(*config.move_key_format) << "\n";
     output << "min position count: " << config.min_position_count << "\n";
     output << "planning completed successfully: " << (plan.planning_completed ? "yes" : "no") << "\n";
     if (plan.preflight_info) {
@@ -251,17 +257,15 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
         output << "preview rows emitted: " << scan_summary->preview_row_count_emitted << "\n";
         output << "movetext replay remains deferred: " << (scan_summary->movetext_replay_deferred ? "yes" : "no") << "\n";
     }
+    output << "unknown eta encountered in some stages: yes\n";
+    output << "limited progress inferability in some stages: yes\n";
     output << "build plan mode: " << plan.mode << "\n";
     if (!plan.warnings.empty()) {
         output << "warnings:\n";
-        for (const auto& warning : plan.warnings) {
-            output << "- " << warning << "\n";
-        }
+        for (const auto& warning : plan.warnings) output << "- " << warning << "\n";
     }
     output << "intentionally not implemented yet:\n";
-    for (const auto& item : plan.not_yet_implemented) {
-        output << "- " << item << "\n";
-    }
+    for (const auto& item : plan.not_yet_implemented) output << "- " << item << "\n";
     return output.str();
 }
 

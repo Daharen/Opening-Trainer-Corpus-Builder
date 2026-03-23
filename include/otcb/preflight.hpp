@@ -19,7 +19,8 @@ struct SourcePreflightInfo {
     std::optional<std::string> timestamp_utc;
 };
 
-SourcePreflightInfo run_source_preflight(const BuildConfig& config);
+class ProgressReporter;
+SourcePreflightInfo run_source_preflight(const BuildConfig& config, ProgressReporter* progress = nullptr);
 std::string render_preflight_summary(const SourcePreflightInfo& info);
 
 }  // namespace otcb

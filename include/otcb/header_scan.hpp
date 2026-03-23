@@ -16,7 +16,8 @@ struct HeaderScanResult {
     std::vector<GameEnvelope> preview_rows;
 };
 
-HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
+class ProgressReporter;
+HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, ProgressReporter* progress = nullptr);
 std::string render_range_execution_summary_json(const HeaderScanSummary& summary);
 std::string render_range_execution_summary_text(const BuildConfig& config, const HeaderScanSummary& summary);
 std::string render_header_scan_preview_jsonl(const std::vector<GameEnvelope>& preview_rows);

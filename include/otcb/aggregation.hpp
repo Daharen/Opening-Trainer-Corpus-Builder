@@ -59,7 +59,8 @@ struct AggregationResult {
     std::vector<AggregatedPositionRecord> preview_rows;
 };
 
-AggregationResult aggregate_counts(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
+class ProgressReporter;
+AggregationResult aggregate_counts(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, ProgressReporter* progress = nullptr);
 std::string render_aggregated_position_move_counts_jsonl(const std::vector<AggregatedPositionRecord>& positions, const BuildConfig& config);
 std::string render_aggregate_preview_jsonl(const std::vector<AggregatedPositionRecord>& preview_rows, const BuildConfig& config);
 std::string render_aggregation_summary_json(const AggregationSummary& summary);

@@ -161,6 +161,9 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.progress_interval < 1) {
         errors.emplace_back("--progress-interval must be at least 1.");
     }
+    if (config.heartbeat_seconds < 1 || config.heartbeat_seconds > 60) {
+        errors.emplace_back("--heartbeat-seconds must be between 1 and 60.");
+    }
     if (config.target_range_bytes == 0) {
         errors.emplace_back("--target-range-bytes must be greater than 0.");
     }

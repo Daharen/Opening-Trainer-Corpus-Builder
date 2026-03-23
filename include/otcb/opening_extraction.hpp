@@ -87,7 +87,8 @@ struct ExtractionResult {
     std::vector<ExtractedOpeningSequence> preview_rows;
 };
 
-ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
+class ProgressReporter;
+ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, ProgressReporter* progress = nullptr);
 std::string render_extracted_opening_sequences_jsonl(const std::vector<ExtractedOpeningSequence>& sequences, bool include_fen_snapshots, bool include_uci_moves);
 std::string render_extraction_preview_jsonl(const std::vector<ExtractedOpeningSequence>& preview_rows);
 std::string render_extraction_summary_json(const ExtractionSummary& summary);

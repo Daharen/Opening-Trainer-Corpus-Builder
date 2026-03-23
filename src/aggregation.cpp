@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "otcb/position_key.hpp"
+#include "otcb/progress.hpp"
 
 namespace otcb {
 namespace {
@@ -33,9 +34,9 @@ struct MutablePositionAggregate {
 
 }  // namespace
 
-AggregationResult aggregate_counts(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan) {
+AggregationResult aggregate_counts(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, ProgressReporter* progress) {
     AggregationResult result;
-    result.extraction_result = extract_openings(config, preflight_info, range_plan);
+    result.extraction_result = extract_openings(config, preflight_info, range_plan, progress);
     result.summary.source_path = preflight_info.canonical_input_path.generic_string();
     result.summary.source_size_bytes = preflight_info.file_size_bytes;
     result.summary.planner_algorithm = range_plan.planner_algorithm;
@@ -55,6 +56,21 @@ AggregationResult aggregate_counts(const BuildConfig& config, const SourcePrefli
     result.summary.move_key_format = to_string(*config.move_key_format);
     result.summary.notes.push_back("aggregate-counts reuses deterministic range ownership, upstream header eligibility filtering, and accepted-game SAN replay before position->move raw-count aggregation.");
     result.summary.notes.push_back("Payload contains raw counts only; shaping, sparse suppression, rare-move suppression, weighting, and trainer-side consumption remain deferred.");
+
+    if (progress) {
+        progress->stage_started(ProgressStage::AggregateCounts, "aggregating extracted ply events into position counts", preflight_info.file_size_bytes);
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.replay_attempts = result.extraction_result.summary.total_replay_attempts;
+            snapshot.replay_successes = result.extraction_result.summary.total_replay_successes;
+            snapshot.replay_failures = result.extraction_result.summary.total_replay_failures;
+            snapshot.extracted_plies = result.extraction_result.summary.total_extracted_plies;
+            snapshot.games_scanned = result.extraction_result.summary.total_games_scanned;
+            snapshot.games_accepted = result.extraction_result.summary.total_games_accepted_upstream;
+            snapshot.aggregated_positions = 0;
+            snapshot.raw_observations = 0;
+            snapshot.aggregate_move_entries = 0;
+        });
+    }
 
     std::map<std::string, MutablePositionAggregate> aggregated;
     for (const auto& sequence : result.extraction_result.sequences) {
@@ -106,6 +122,15 @@ AggregationResult aggregate_counts(const BuildConfig& config, const SourcePrefli
                 move_count.example_san = event.san;
             }
             ++result.summary.total_extracted_ply_events_consumed;
+            if (progress) {
+                progress->update([&](ProgressSnapshot& snapshot) {
+                    snapshot.raw_observations = result.summary.total_extracted_ply_events_consumed;
+                    snapshot.aggregated_positions = static_cast<int>(aggregated.size());
+                    const auto seconds = std::max(1.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - snapshot.stage_started_at).count());
+                    snapshot.throughput_per_second = snapshot.raw_observations / seconds;
+                    snapshot.last_event_message = "aggregation still active";
+                });
+            }
         }
     }
 
@@ -146,6 +171,15 @@ AggregationResult aggregate_counts(const BuildConfig& config, const SourcePrefli
         }
     }
     result.summary.preview_row_count_emitted = static_cast<int>(result.preview_rows.size());
+    if (progress) {
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.aggregated_positions = result.summary.total_unique_positions_emitted;
+            snapshot.raw_observations = result.summary.total_raw_observations_emitted;
+            snapshot.aggregate_move_entries = result.summary.total_aggregate_move_entries_emitted;
+            snapshot.percent_complete = 100.0;
+        });
+        progress->stage_completed("aggregation completed");
+    }
     return result;
 }
 

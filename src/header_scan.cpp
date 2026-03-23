@@ -6,6 +6,8 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "otcb/progress.hpp"
+
 namespace otcb {
 namespace {
 
@@ -161,7 +163,20 @@ std::uint64_t current_offset(std::ifstream& input) {
 
 }  // namespace
 
-HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan) {
+HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, ProgressReporter* progress) {
+    if (progress) {
+        progress->stage_started(ProgressStage::ScanHeaders, "scanning accepted-game headers", preflight_info.file_size_bytes);
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.ranges_planned = static_cast<int>(range_plan.ranges.size());
+            snapshot.ranges_completed = 0;
+            snapshot.games_scanned = 0;
+            snapshot.games_accepted = 0;
+            snapshot.games_rejected = 0;
+            snapshot.source_bytes_scanned = 0;
+            snapshot.percent_complete.reset();
+        });
+    }
+
     std::ifstream input(preflight_info.canonical_input_path, std::ios::binary);
     if (!input) {
         throw std::runtime_error("Failed to open PGN for header scanning: " + preflight_info.canonical_input_path.string());
@@ -185,6 +200,12 @@ HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightIn
 
     for (std::size_t range_index = 0; range_index < range_plan.ranges.size(); ++range_index) {
         const PlannedRange& planned = range_plan.ranges[range_index];
+        if (progress) {
+            progress->update([&](ProgressSnapshot& snapshot) {
+                snapshot.current_range_index = planned.range_index;
+                snapshot.last_event_message = "scanning headers in current planned range";
+            });
+        }
         const std::uint64_t range_start = planned.adjusted_start_byte;
         const std::uint64_t range_end_exclusive = (range_index + 1 < range_plan.ranges.size())
             ? range_plan.ranges[range_index + 1].adjusted_start_byte
@@ -199,6 +220,13 @@ HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightIn
         if (range_start >= preflight_info.file_size_bytes || range_start >= range_end_exclusive) {
             range_summary.notes.push_back("Range start resolved to end-of-file; nothing scanned.");
             result.summary.range_summaries.push_back(range_summary);
+        if (progress) {
+            progress->update([&](ProgressSnapshot& snapshot) {
+                snapshot.ranges_completed = static_cast<int>(result.summary.range_summaries.size());
+                snapshot.source_bytes_scanned = std::min<std::uint64_t>(range_end_exclusive, preflight_info.file_size_bytes);
+                snapshot.percent_complete = preflight_info.file_size_bytes == 0 ? std::optional<double>{100.0} : std::optional<double>{100.0 * static_cast<double>(snapshot.source_bytes_scanned) / static_cast<double>(preflight_info.file_size_bytes)};
+            });
+        }
             continue;
         }
 
@@ -340,6 +368,17 @@ HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightIn
 
             ++range_summary.games_scanned;
             ++result.summary.total_games_scanned;
+            if (progress) {
+                progress->update([&](ProgressSnapshot& snapshot) {
+                    snapshot.games_scanned = result.summary.total_games_scanned;
+                    snapshot.games_accepted = result.summary.total_games_accepted;
+                    snapshot.games_rejected = result.summary.total_games_rejected;
+                    snapshot.source_bytes_scanned = std::min<std::uint64_t>(current_offset(input), preflight_info.file_size_bytes);
+                    snapshot.percent_complete = preflight_info.file_size_bytes == 0 ? std::optional<double>{100.0} : std::optional<double>{100.0 * static_cast<double>(snapshot.source_bytes_scanned) / static_cast<double>(preflight_info.file_size_bytes)};
+                    const auto seconds = std::max(1.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - snapshot.stage_started_at).count());
+                    snapshot.throughput_per_second = snapshot.games_scanned / seconds;
+                });
+            }
             if (envelope.classification == HeaderScanClassification::Accepted) {
                 ++range_summary.games_accepted;
                 ++result.summary.total_games_accepted;
@@ -359,10 +398,28 @@ HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightIn
         }
 
         result.summary.range_summaries.push_back(range_summary);
+        if (progress) {
+            progress->update([&](ProgressSnapshot& snapshot) {
+                snapshot.ranges_completed = static_cast<int>(result.summary.range_summaries.size());
+                snapshot.source_bytes_scanned = std::min<std::uint64_t>(range_end_exclusive, preflight_info.file_size_bytes);
+                snapshot.percent_complete = preflight_info.file_size_bytes == 0 ? std::optional<double>{100.0} : std::optional<double>{100.0 * static_cast<double>(snapshot.source_bytes_scanned) / static_cast<double>(preflight_info.file_size_bytes)};
+            });
+        }
     }
 
     result.summary.total_ranges_executed = static_cast<int>(result.summary.range_summaries.size());
     result.summary.preview_row_count_emitted = static_cast<int>(result.preview_rows.size());
+    if (progress) {
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.ranges_completed = result.summary.total_ranges_executed;
+            snapshot.games_scanned = result.summary.total_games_scanned;
+            snapshot.games_accepted = result.summary.total_games_accepted;
+            snapshot.games_rejected = result.summary.total_games_rejected;
+            snapshot.source_bytes_scanned = preflight_info.file_size_bytes;
+            snapshot.percent_complete = 100.0;
+        });
+        progress->stage_completed("header scan completed");
+    }
     return result;
 }
 
