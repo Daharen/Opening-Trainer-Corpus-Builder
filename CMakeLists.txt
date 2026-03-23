@@ -16,6 +16,8 @@ add_executable(opening-trainer-corpus-builder
     src/preflight.cpp
     src/source_boundaries.cpp
     src/range_plan.cpp
+    src/game_envelope.cpp
+    src/header_scan.cpp
 )
 
 target_include_directories(opening-trainer-corpus-builder

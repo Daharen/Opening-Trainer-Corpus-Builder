@@ -16,6 +16,9 @@ struct BundleWriteResult {
 
 BundleWriteResult write_dry_run_bundle(const BuildConfig& config);
 BundleWriteResult write_preflight_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan* range_plan = nullptr);
+struct HeaderScanResult;
+
 BundleWriteResult write_plan_ranges_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
+BundleWriteResult write_scan_headers_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const HeaderScanResult& scan_result);
 
 }  // namespace otcb

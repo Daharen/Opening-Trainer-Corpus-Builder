@@ -19,6 +19,7 @@ enum class BuildMode {
     DryRun,
     Preflight,
     PlanRanges,
+    ScanHeaders,
 };
 
 std::string to_string(RatingPolicy policy);
@@ -46,6 +47,9 @@ struct BuildConfig {
     std::uint64_t boundary_scan_bytes = 1ULL * 1024ULL * 1024ULL;
     int max_ranges = 0;
     bool emit_range_plan = false;
+    int header_preview_limit = 0;
+    bool emit_header_preview = false;
+    bool strict_header_scan = false;
     std::string input_format = "pgn";
 };
 

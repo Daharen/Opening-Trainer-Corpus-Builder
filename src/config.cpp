@@ -50,6 +50,8 @@ std::string to_string(BuildMode mode) {
             return "preflight";
         case BuildMode::PlanRanges:
             return "plan-ranges";
+        case BuildMode::ScanHeaders:
+            return "scan-headers";
     }
     return "unknown";
 }
@@ -63,6 +65,9 @@ std::optional<BuildMode> parse_build_mode(const std::string& value) {
     }
     if (value == "plan-ranges") {
         return BuildMode::PlanRanges;
+    }
+    if (value == "scan-headers") {
+        return BuildMode::ScanHeaders;
     }
     return std::nullopt;
 }
@@ -115,12 +120,15 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.max_ranges < 0) {
         errors.emplace_back("--max-ranges must be greater than or equal to 0.");
     }
+    if (config.header_preview_limit < 0) {
+        errors.emplace_back("--header-preview-limit must be greater than or equal to 0.");
+    }
     if (config.input_format != "pgn") {
         errors.emplace_back("--input-format currently only supports 'pgn'.");
     }
 
-    const bool input_required = config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges;
-    const bool output_required = config.dry_run || config.mode == BuildMode::PlanRanges;
+    const bool input_required = config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders;
+    const bool output_required = config.dry_run || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders;
 
     if (input_required && config.input_pgn.empty()) {
         errors.emplace_back("--input-pgn is required for the selected build mode.");

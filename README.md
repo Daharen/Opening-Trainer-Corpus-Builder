@@ -2,12 +2,18 @@
 
 This repository contains the first runnable C++ baseline for the corpus builder executable `opening-trainer-corpus-builder`.
 
-## Supported mode
+## Supported modes
 
-The current baseline supports **scaffold dry-run artifact emission only**. It validates the CLI contract and writes a deterministic artifact bundle skeleton containing:
+The builder supports deterministic scaffold emission, source preflight, range planning, and header-only scanning via `--mode scan-headers`. The new scan mode reuses the safe range planner, scans complete game envelopes inside owned byte windows, extracts header tags, and applies explicit rating-policy eligibility checks without performing SAN replay.
+
+Generated bundles can include:
 
 - `manifest.json`
 - `build_summary.txt`
+- `plans/range_plan.json`
+- `plans/range_execution_summary.json`
+- `plans/range_execution_summary.txt`
 - `data/positions_placeholder.jsonl`
+- `data/header_scan_preview.jsonl` when requested
 
-Use `--help` to see the full CLI surface, including explicit rating-policy semantics.
+Use `--help` to see the full CLI surface, including explicit rating-policy semantics and the honesty note that move replay/final corpus payload emission are still deferred.

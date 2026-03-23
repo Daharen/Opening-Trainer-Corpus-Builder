@@ -4,8 +4,11 @@
 #include <string>
 #include <vector>
 
+#include <map>
+
 #include "otcb/build_plan.hpp"
 #include "otcb/config.hpp"
+#include "otcb/game_envelope.hpp"
 
 namespace otcb {
 
@@ -37,13 +40,21 @@ struct ManifestData {
     bool range_plan_emitted = false;
     std::string range_plan_file;
     int range_count = 0;
+    int games_scanned = 0;
+    int games_accepted = 0;
+    int games_rejected = 0;
+    bool header_scan_preview_emitted = false;
+    std::string header_scan_preview_file;
+    bool movetext_replay_performed = false;
+    std::string scan_algorithm;
+    std::map<std::string, int> eligibility_counts;
     std::vector<std::string> payload_files;
     std::string payload_status;
     std::vector<std::string> notes;
 };
 
-ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id);
+ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary = nullptr);
 std::string render_manifest_json(const ManifestData& manifest);
-std::string render_build_summary(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id);
+std::string render_build_summary(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary = nullptr);
 
 }  // namespace otcb
