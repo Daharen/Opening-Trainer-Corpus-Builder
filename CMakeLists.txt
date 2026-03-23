@@ -10,6 +10,7 @@ add_executable(opening-trainer-corpus-builder
     src/main.cpp
     src/cli.cpp
     src/config.cpp
+    src/progress.cpp
     src/manifest.cpp
     src/bundle_writer.cpp
     src/build_plan.cpp

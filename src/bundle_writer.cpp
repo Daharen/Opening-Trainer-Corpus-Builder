@@ -8,6 +8,7 @@
 #include "otcb/header_scan.hpp"
 #include "otcb/manifest.hpp"
 #include "otcb/opening_extraction.hpp"
+#include "otcb/progress.hpp"
 
 namespace otcb {
 namespace {
@@ -34,6 +35,7 @@ BundleWriteResult write_bundle(
     const BuildPlan& plan,
     const std::string& artifact_id,
     const bool emit_range_plan_files,
+    ProgressReporter* progress,
     const HeaderScanSummary* scan_summary = nullptr,
     const std::vector<GameEnvelope>* preview_rows = nullptr,
     const ExtractionSummary* extraction_summary = nullptr,
@@ -43,6 +45,9 @@ BundleWriteResult write_bundle(
     const std::vector<AggregatedPositionRecord>* aggregate_positions = nullptr,
     const std::vector<AggregatedPositionRecord>* aggregate_preview_rows = nullptr) {
     const std::filesystem::path bundle_root = config.output_dir / artifact_id;
+    if (progress) {
+        progress->stage_started(ProgressStage::WriteArtifacts, "writing artifact bundle files");
+    }
     const std::filesystem::path data_dir = bundle_root / "data";
     const std::filesystem::path plans_dir = bundle_root / "plans";
 
@@ -88,45 +93,48 @@ BundleWriteResult write_bundle(
         write_text_file(data_dir / "aggregate_preview.jsonl", render_aggregate_preview_jsonl(*aggregate_preview_rows, config));
     }
 
+    if (progress) {
+        progress->stage_completed("artifact bundle files written");
+    }
     return BundleWriteResult{.bundle_root = bundle_root, .artifact_id = artifact_id};
 }
 
 }  // namespace
 
-BundleWriteResult write_dry_run_bundle(const BuildConfig& config) {
+BundleWriteResult write_dry_run_bundle(const BuildConfig& config, ProgressReporter* progress) {
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_dry_run_build_plan();
-    return write_bundle(config, plan, artifact_id, false);
+    return write_bundle(config, plan, artifact_id, false, progress);
 }
 
-BundleWriteResult write_preflight_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan* range_plan) {
+BundleWriteResult write_preflight_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan* range_plan, ProgressReporter* progress) {
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_preflight_build_plan(preflight_info, range_plan != nullptr, range_plan);
-    return write_bundle(config, plan, artifact_id, range_plan != nullptr);
+    return write_bundle(config, plan, artifact_id, range_plan != nullptr, progress);
 }
 
-BundleWriteResult write_plan_ranges_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan) {
+BundleWriteResult write_plan_ranges_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, ProgressReporter* progress) {
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_plan_ranges_build_plan(preflight_info, range_plan);
-    return write_bundle(config, plan, artifact_id, true);
+    return write_bundle(config, plan, artifact_id, true, progress);
 }
 
-BundleWriteResult write_scan_headers_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const HeaderScanResult& scan_result) {
+BundleWriteResult write_scan_headers_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const HeaderScanResult& scan_result, ProgressReporter* progress) {
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_scan_headers_build_plan(preflight_info, range_plan);
-    return write_bundle(config, plan, artifact_id, true, &scan_result.summary, &scan_result.preview_rows);
+    return write_bundle(config, plan, artifact_id, true, progress, &scan_result.summary, &scan_result.preview_rows);
 }
 
-BundleWriteResult write_extract_openings_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const ExtractionResult& extraction_result) {
+BundleWriteResult write_extract_openings_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const ExtractionResult& extraction_result, ProgressReporter* progress) {
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_extract_openings_build_plan(preflight_info, range_plan);
-    return write_bundle(config, plan, artifact_id, true, &extraction_result.scan_result.summary, &extraction_result.scan_result.preview_rows, &extraction_result.summary, &extraction_result.sequences, &extraction_result.preview_rows);
+    return write_bundle(config, plan, artifact_id, true, progress, &extraction_result.scan_result.summary, &extraction_result.scan_result.preview_rows, &extraction_result.summary, &extraction_result.sequences, &extraction_result.preview_rows);
 }
 
-BundleWriteResult write_aggregate_counts_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const AggregationResult& aggregation_result) {
+BundleWriteResult write_aggregate_counts_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const AggregationResult& aggregation_result, ProgressReporter* progress) {
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_aggregate_counts_build_plan(preflight_info, range_plan);
-    return write_bundle(config, plan, artifact_id, true, &aggregation_result.extraction_result.scan_result.summary, &aggregation_result.extraction_result.scan_result.preview_rows, &aggregation_result.extraction_result.summary, &aggregation_result.extraction_result.sequences, &aggregation_result.extraction_result.preview_rows, &aggregation_result.summary, &aggregation_result.positions, &aggregation_result.preview_rows);
+    return write_bundle(config, plan, artifact_id, true, progress, &aggregation_result.extraction_result.scan_result.summary, &aggregation_result.extraction_result.scan_result.preview_rows, &aggregation_result.extraction_result.summary, &aggregation_result.extraction_result.sequences, &aggregation_result.extraction_result.preview_rows, &aggregation_result.summary, &aggregation_result.positions, &aggregation_result.preview_rows);
 }
 
 }  // namespace otcb

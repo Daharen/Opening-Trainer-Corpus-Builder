@@ -6,6 +6,7 @@
 #include "otcb/chess_board.hpp"
 #include "otcb/chess_types.hpp"
 #include "otcb/manifest.hpp"
+#include "otcb/progress.hpp"
 #include "otcb/san_replay.hpp"
 #include "otcb/san_tokenizer.hpp"
 
@@ -90,9 +91,9 @@ std::string to_string(const ExtractionFailureReason reason) {
     return "unknown";
 }
 
-ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan) {
+ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, ProgressReporter* progress) {
     ExtractionResult result;
-    result.scan_result = scan_headers(config, preflight_info, range_plan);
+    result.scan_result = scan_headers(config, preflight_info, range_plan, progress);
     result.summary.source_path = preflight_info.canonical_input_path.generic_string();
     result.summary.source_size_bytes = preflight_info.file_size_bytes;
     result.summary.planner_algorithm = range_plan.planner_algorithm;
@@ -111,12 +112,36 @@ ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflig
         result.summary.notes.push_back("Strict header scanning remained enabled during the upstream accepted-game filter.");
     }
 
+    if (progress) {
+        progress->stage_started(ProgressStage::ExtractOpenings, "replaying accepted games and extracting opening plies", preflight_info.file_size_bytes);
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.ranges_planned = result.scan_result.summary.total_ranges_executed;
+            snapshot.ranges_completed = 0;
+            snapshot.replay_attempts = 0;
+            snapshot.replay_successes = 0;
+            snapshot.replay_failures = 0;
+            snapshot.extracted_plies = 0;
+            snapshot.games_scanned = result.scan_result.summary.total_games_scanned;
+            snapshot.games_accepted = result.scan_result.summary.total_games_accepted;
+            snapshot.games_rejected = result.scan_result.summary.total_games_rejected;
+            if (config.max_games > 0) snapshot.max_games = config.max_games;
+        });
+    }
+
     std::ifstream input(preflight_info.canonical_input_path, std::ios::binary);
     if (!input) {
         throw std::runtime_error("Failed to open PGN for opening extraction: " + preflight_info.canonical_input_path.string());
     }
 
     for (const GameEnvelope& envelope : result.scan_result.accepted_games) {
+        if (progress) {
+            progress->update([&](ProgressSnapshot& snapshot) {
+                snapshot.current_range_index = envelope.range_index;
+                snapshot.source_bytes_scanned = std::min<std::uint64_t>(envelope.game_end_byte, preflight_info.file_size_bytes);
+                snapshot.percent_complete = preflight_info.file_size_bytes == 0 ? std::optional<double>{100.0} : std::optional<double>{100.0 * static_cast<double>(snapshot.source_bytes_scanned) / static_cast<double>(preflight_info.file_size_bytes)};
+                snapshot.last_event_message = "replay still active";
+            });
+        }
         ExtractedOpeningSequence sequence;
         sequence.range_index = envelope.range_index;
         sequence.header_start_byte = envelope.header_start_byte;
@@ -131,6 +156,11 @@ ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflig
         sequence.failure_reason = to_string(ExtractionFailureReason::None);
         sequence.plies_requested = config.retained_ply;
         ++result.summary.total_replay_attempts;
+        if (progress) {
+            progress->update([&](ProgressSnapshot& snapshot) {
+                snapshot.replay_attempts = result.summary.total_replay_attempts;
+            });
+        }
 
         const std::string movetext = extract_game_movetext(input, envelope);
         const auto tokenized = tokenize_movetext(movetext);
@@ -139,6 +169,20 @@ ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflig
             ++result.summary.total_replay_failures;
             ++result.summary.replay_failure_counts[sequence.failure_reason];
             result.sequences.push_back(sequence);
+        if (progress) {
+            progress->update([&](ProgressSnapshot& snapshot) {
+                snapshot.replay_successes = result.summary.total_replay_successes;
+                snapshot.replay_failures = result.summary.total_replay_failures;
+                snapshot.ranges_completed = std::max(snapshot.ranges_completed, envelope.range_index + 1);
+                const auto seconds = std::max(1.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - snapshot.stage_started_at).count());
+                snapshot.throughput_per_second = snapshot.replay_attempts / seconds;
+            });
+        }
+            if (progress) {
+                progress->update([&](ProgressSnapshot& snapshot) {
+                    snapshot.replay_failures = result.summary.total_replay_failures;
+                });
+            }
             continue;
         }
 
@@ -172,6 +216,11 @@ ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflig
             sequence.ply_events.push_back(event);
             ++sequence.plies_extracted;
             ++result.summary.total_extracted_plies;
+            if (progress) {
+                progress->update([&](ProgressSnapshot& snapshot) {
+                    snapshot.extracted_plies = result.summary.total_extracted_plies;
+                });
+            }
             if (!termination.empty()) {
                 break;
             }
@@ -190,6 +239,15 @@ ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflig
         }
 
         result.sequences.push_back(sequence);
+        if (progress) {
+            progress->update([&](ProgressSnapshot& snapshot) {
+                snapshot.replay_successes = result.summary.total_replay_successes;
+                snapshot.replay_failures = result.summary.total_replay_failures;
+                snapshot.ranges_completed = std::max(snapshot.ranges_completed, envelope.range_index + 1);
+                const auto seconds = std::max(1.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - snapshot.stage_started_at).count());
+                snapshot.throughput_per_second = snapshot.replay_attempts / seconds;
+            });
+        }
         const bool emit_preview = config.emit_extraction_preview &&
             (config.extraction_preview_limit < 0 || static_cast<int>(result.preview_rows.size()) < config.extraction_preview_limit);
         if (emit_preview) {
@@ -198,6 +256,17 @@ ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflig
     }
 
     result.summary.preview_row_count_emitted = static_cast<int>(result.preview_rows.size());
+    if (progress) {
+        progress->update([&](ProgressSnapshot& snapshot) {
+            snapshot.replay_attempts = result.summary.total_replay_attempts;
+            snapshot.replay_successes = result.summary.total_replay_successes;
+            snapshot.replay_failures = result.summary.total_replay_failures;
+            snapshot.extracted_plies = result.summary.total_extracted_plies;
+            snapshot.source_bytes_scanned = preflight_info.file_size_bytes;
+            snapshot.percent_complete = 100.0;
+        });
+        progress->stage_completed("opening extraction completed");
+    }
     return result;
 }
 

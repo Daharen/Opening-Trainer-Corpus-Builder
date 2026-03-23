@@ -30,6 +30,10 @@ struct ManifestData {
     int threads = 0;
     int max_games = 0;
     int progress_interval = 0;
+    int heartbeat_seconds = 0;
+    bool progress_log_emitted = false;
+    bool status_json_emitted = false;
+    std::string progress_reporting_mode;
     bool raw_counts_preserved = false;
     bool effective_weights_precomputed = false;
     std::string position_key_format;

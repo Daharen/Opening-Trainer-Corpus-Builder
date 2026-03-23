@@ -33,7 +33,8 @@ struct RangePlan {
     bool deterministic = true;
 };
 
-RangePlan make_range_plan(const BuildConfig& config, const std::string& artifact_id, const SourcePreflightInfo& source_info);
+class ProgressReporter;
+RangePlan make_range_plan(const BuildConfig& config, const std::string& artifact_id, const SourcePreflightInfo& source_info, ProgressReporter* progress = nullptr);
 std::string render_range_plan_json(const RangePlan& plan);
 std::string render_range_plan_text(const RangePlan& plan);
 
