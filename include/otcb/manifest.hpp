@@ -1,14 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
-
-#include <map>
 
 #include "otcb/build_plan.hpp"
 #include "otcb/config.hpp"
 #include "otcb/game_envelope.hpp"
+#include "otcb/opening_extraction.hpp"
 
 namespace otcb {
 
@@ -43,18 +43,28 @@ struct ManifestData {
     int games_scanned = 0;
     int games_accepted = 0;
     int games_rejected = 0;
+    int replay_attempts = 0;
+    int replay_successes = 0;
+    int replay_failures = 0;
+    std::map<std::string, int> replay_failure_counts;
     bool header_scan_preview_emitted = false;
     std::string header_scan_preview_file;
+    bool extraction_preview_emitted = false;
+    std::string extraction_preview_file;
     bool movetext_replay_performed = false;
+    bool include_fen_snapshots = false;
+    bool include_uci_moves = false;
+    std::string extracted_sequence_file;
     std::string scan_algorithm;
+    std::string replay_algorithm;
     std::map<std::string, int> eligibility_counts;
     std::vector<std::string> payload_files;
     std::string payload_status;
     std::vector<std::string> notes;
 };
 
-ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary = nullptr);
+ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary = nullptr, const ExtractionSummary* extraction_summary = nullptr);
 std::string render_manifest_json(const ManifestData& manifest);
-std::string render_build_summary(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary = nullptr);
+std::string render_build_summary(const BuildConfig& config, const BuildPlan& plan, const std::string& artifact_id, const HeaderScanSummary* scan_summary = nullptr, const ExtractionSummary* extraction_summary = nullptr);
 
 }  // namespace otcb

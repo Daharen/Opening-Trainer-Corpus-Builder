@@ -18,6 +18,11 @@ add_executable(opening-trainer-corpus-builder
     src/range_plan.cpp
     src/game_envelope.cpp
     src/header_scan.cpp
+    src/chess_types.cpp
+    src/chess_board.cpp
+    src/san_tokenizer.cpp
+    src/san_replay.cpp
+    src/opening_extraction.cpp
 )
 
 target_include_directories(opening-trainer-corpus-builder
