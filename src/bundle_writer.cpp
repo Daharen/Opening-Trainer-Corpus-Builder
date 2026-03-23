@@ -20,25 +20,57 @@ void write_text_file(const std::filesystem::path& path, const std::string& conte
     }
 }
 
+void write_placeholder_payload(const std::filesystem::path& data_dir) {
+    write_text_file(
+        data_dir / "positions_placeholder.jsonl",
+        "{\"payload_status\":\"placeholder_non_final_payload\",\"record_type\":\"scaffold\",\"notes\":[\"No real position data has been generated yet.\"]}\n");
+}
+
+BundleWriteResult write_bundle(
+    const BuildConfig& config,
+    const BuildPlan& plan,
+    const std::string& artifact_id,
+    const bool emit_range_plan_files) {
+    const std::filesystem::path bundle_root = config.output_dir / artifact_id;
+    const std::filesystem::path data_dir = bundle_root / "data";
+    const std::filesystem::path plans_dir = bundle_root / "plans";
+
+    std::filesystem::create_directories(data_dir);
+    if (emit_range_plan_files) {
+        std::filesystem::create_directories(plans_dir);
+    }
+
+    const ManifestData manifest = make_manifest_data(config, plan, artifact_id);
+    write_text_file(bundle_root / "manifest.json", render_manifest_json(manifest));
+    write_text_file(bundle_root / "build_summary.txt", render_build_summary(config, plan, artifact_id));
+    write_placeholder_payload(data_dir);
+
+    if (emit_range_plan_files && plan.range_plan) {
+        write_text_file(plans_dir / "range_plan.json", render_range_plan_json(*plan.range_plan));
+        write_text_file(plans_dir / "range_plan.txt", render_range_plan_text(*plan.range_plan));
+    }
+
+    return BundleWriteResult{.bundle_root = bundle_root, .artifact_id = artifact_id};
+}
+
 }  // namespace
 
 BundleWriteResult write_dry_run_bundle(const BuildConfig& config) {
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
-    const std::filesystem::path bundle_root = config.output_dir / artifact_id;
-    const std::filesystem::path data_dir = bundle_root / "data";
-
-    std::filesystem::create_directories(data_dir);
-
     const BuildPlan plan = make_dry_run_build_plan();
-    const ManifestData manifest = make_manifest_data(config, plan, artifact_id);
+    return write_bundle(config, plan, artifact_id, false);
+}
 
-    write_text_file(bundle_root / "manifest.json", render_manifest_json(manifest));
-    write_text_file(bundle_root / "build_summary.txt", render_build_summary(config, plan, artifact_id));
-    write_text_file(
-        data_dir / "positions_placeholder.jsonl",
-        "{\"payload_status\":\"placeholder_non_final_payload\",\"record_type\":\"scaffold\",\"notes\":[\"No real position data has been generated yet.\"]}\n");
+BundleWriteResult write_preflight_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan* range_plan) {
+    const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
+    const BuildPlan plan = make_preflight_build_plan(preflight_info, range_plan != nullptr, range_plan);
+    return write_bundle(config, plan, artifact_id, range_plan != nullptr);
+}
 
-    return BundleWriteResult{.bundle_root = bundle_root, .artifact_id = artifact_id};
+BundleWriteResult write_plan_ranges_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan) {
+    const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
+    const BuildPlan plan = make_plan_ranges_build_plan(preflight_info, range_plan);
+    return write_bundle(config, plan, artifact_id, true);
 }
 
 }  // namespace otcb

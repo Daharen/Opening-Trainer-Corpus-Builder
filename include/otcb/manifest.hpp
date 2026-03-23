@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,9 @@ struct ManifestData {
     std::string build_status;
     std::string source_corpus_identity;
     std::string input_pgn_path;
+    std::uint64_t source_file_size_bytes = 0;
+    std::string source_file_extension;
+    std::string input_format;
     int rating_lower_bound = 0;
     int rating_upper_bound = 0;
     std::string rating_policy;
@@ -26,6 +30,13 @@ struct ManifestData {
     bool effective_weights_precomputed = false;
     std::string position_key_format;
     std::string move_key_format;
+    std::uint64_t planner_target_range_bytes = 0;
+    std::uint64_t planner_boundary_scan_bytes = 0;
+    int planner_max_ranges = 0;
+    std::string planner_algorithm;
+    bool range_plan_emitted = false;
+    std::string range_plan_file;
+    int range_count = 0;
     std::vector<std::string> payload_files;
     std::string payload_status;
     std::vector<std::string> notes;

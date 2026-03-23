@@ -20,6 +20,19 @@ int parse_int_argument(const std::string& option, const std::string& value) {
     }
 }
 
+std::uint64_t parse_uint64_argument(const std::string& option, const std::string& value) {
+    try {
+        std::size_t index = 0;
+        const auto parsed = std::stoull(value, &index);
+        if (index != value.size()) {
+            throw std::invalid_argument("trailing characters");
+        }
+        return parsed;
+    } catch (const std::exception&) {
+        throw std::runtime_error("Invalid unsigned integer for " + option + ": " + value);
+    }
+}
+
 std::string require_value(int argc, char** argv, int& index, const std::string& option) {
     if (index + 1 >= argc) {
         throw std::runtime_error("Missing value for " + option);
@@ -53,6 +66,16 @@ CliParseResult parse_cli(int argc, char** argv) {
             }
             if (arg == "--dry-run") {
                 result.config.dry_run = true;
+                result.config.mode = BuildMode::DryRun;
+                continue;
+            }
+            if (arg == "--mode") {
+                const auto parsed = parse_build_mode(require_value(argc, argv, index, arg));
+                if (!parsed.has_value()) {
+                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges.");
+                }
+                result.config.mode = *parsed;
+                result.config.dry_run = result.config.mode == BuildMode::DryRun;
                 continue;
             }
             if (arg == "--input-pgn") {
@@ -99,6 +122,26 @@ CliParseResult parse_cli(int argc, char** argv) {
                 result.config.progress_interval = parse_int_argument(arg, require_value(argc, argv, index, arg));
                 continue;
             }
+            if (arg == "--target-range-bytes") {
+                result.config.target_range_bytes = parse_uint64_argument(arg, require_value(argc, argv, index, arg));
+                continue;
+            }
+            if (arg == "--boundary-scan-bytes") {
+                result.config.boundary_scan_bytes = parse_uint64_argument(arg, require_value(argc, argv, index, arg));
+                continue;
+            }
+            if (arg == "--max-ranges") {
+                result.config.max_ranges = parse_int_argument(arg, require_value(argc, argv, index, arg));
+                continue;
+            }
+            if (arg == "--emit-range-plan") {
+                result.config.emit_range_plan = true;
+                continue;
+            }
+            if (arg == "--input-format") {
+                result.config.input_format = require_value(argc, argv, index, arg);
+                continue;
+            }
             throw std::runtime_error("Unknown argument: " + arg);
         }
     } catch (const std::exception& ex) {
@@ -118,21 +161,27 @@ CliParseResult parse_cli(int argc, char** argv) {
 void print_usage(std::ostream& stream, const std::string& program_name) {
     stream
         << "Usage: " << program_name << " [options]\n\n"
-        << "Initial C++ baseline for scaffold dry-run artifact emission. Full PGN corpus building is not yet implemented.\n\n"
+        << "C++ corpus-builder scaffold with explicit preflight and deterministic PGN range planning. Full PGN corpus building is not yet implemented.\n\n"
         << "Options:\n"
-        << "  --input-pgn <path>           Path to the source PGN file. Required for --dry-run.\n"
-        << "  --output-dir <path>          Directory where the artifact bundle will be created. Required for --dry-run.\n"
-        << "  --min-rating <int>           Inclusive lower rating bound.\n"
-        << "  --max-rating <int>           Inclusive upper rating bound.\n"
-        << "  --rating-policy <value>      Explicit rating eligibility policy. Required.\n"
+        << "  --mode <dry-run|preflight|plan-ranges>  Select builder mode. Default: dry-run.\n"
+        << "  --input-pgn <path>                      Path to the source PGN file. Required for preflight, plan-ranges, and dry-run.\n"
+        << "  --output-dir <path>                     Directory where the artifact bundle will be created. Required for plan-ranges and dry-run.\n"
+        << "  --input-format <pgn>                    Explicit source format. Currently only 'pgn' is supported.\n"
+        << "  --target-range-bytes <uint64>           Nominal target size for each planned byte range. Must be > 0.\n"
+        << "  --boundary-scan-bytes <uint64>          Forward scan window used to align nonzero starts to safe boundaries. Must be > 0.\n"
+        << "  --max-ranges <int>                      Optional maximum number of planned ranges. Use 0 for no explicit limit.\n"
+        << "  --emit-range-plan                       Emit range plan files during preflight when explicitly requested.\n"
+        << "  --min-rating <int>                      Inclusive lower rating bound.\n"
+        << "  --max-rating <int>                      Inclusive upper rating bound.\n"
+        << "  --rating-policy <value>                 Explicit rating eligibility policy. Required.\n"
         << rating_policy_help() << "\n"
-        << "  --retained-ply <int>         Number of opening plies to retain. Must be > 0.\n"
-        << "  --threads <int>              Requested worker thread count. Must be >= 1.\n"
-        << "  --max-games <int>            Maximum games to consider. Must be >= 0.\n"
-        << "  --artifact-id <string>       Optional explicit artifact bundle identifier.\n"
-        << "  --progress-interval <int>    Progress reporting interval. Must be >= 1.\n"
-        << "  --dry-run                    Validate parameters and emit a scaffold artifact bundle.\n"
-        << "  --help                       Print this help message and exit.\n";
+        << "  --retained-ply <int>                    Number of opening plies to retain. Must be > 0.\n"
+        << "  --threads <int>                         Requested worker thread count. Must be >= 1.\n"
+        << "  --max-games <int>                       Maximum games to consider. Must be >= 0.\n"
+        << "  --artifact-id <string>                  Optional explicit artifact bundle identifier.\n"
+        << "  --progress-interval <int>               Progress reporting interval. Must be >= 1.\n"
+        << "  --dry-run                               Legacy alias for --mode dry-run.\n"
+        << "  --help                                  Print this help message and exit.\n";
 }
 
 }  // namespace otcb

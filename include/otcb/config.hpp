@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -14,9 +15,18 @@ enum class RatingPolicy {
     BlackInBand,
 };
 
+enum class BuildMode {
+    DryRun,
+    Preflight,
+    PlanRanges,
+};
+
 std::string to_string(RatingPolicy policy);
 std::optional<RatingPolicy> parse_rating_policy(const std::string& value);
 std::string rating_policy_help();
+
+std::string to_string(BuildMode mode);
+std::optional<BuildMode> parse_build_mode(const std::string& value);
 
 struct BuildConfig {
     std::filesystem::path input_pgn;
@@ -31,6 +41,12 @@ struct BuildConfig {
     int progress_interval = 1;
     bool dry_run = false;
     bool help_requested = false;
+    BuildMode mode = BuildMode::DryRun;
+    std::uint64_t target_range_bytes = 64ULL * 1024ULL * 1024ULL;
+    std::uint64_t boundary_scan_bytes = 1ULL * 1024ULL * 1024ULL;
+    int max_ranges = 0;
+    bool emit_range_plan = false;
+    std::string input_format = "pgn";
 };
 
 std::string derive_artifact_id(const BuildConfig& config);
