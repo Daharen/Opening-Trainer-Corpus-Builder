@@ -72,7 +72,7 @@ CliParseResult parse_cli(int argc, char** argv) {
             if (arg == "--mode") {
                 const auto parsed = parse_build_mode(require_value(argc, argv, index, arg));
                 if (!parsed.has_value()) {
-                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges, scan-headers.");
+                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges, scan-headers, extract-openings.");
                 }
                 result.config.mode = *parsed;
                 result.config.dry_run = result.config.mode == BuildMode::DryRun;
@@ -150,6 +150,26 @@ CliParseResult parse_cli(int argc, char** argv) {
                 result.config.strict_header_scan = true;
                 continue;
             }
+            if (arg == "--extraction-preview-limit") {
+                result.config.extraction_preview_limit = parse_int_argument(arg, require_value(argc, argv, index, arg));
+                continue;
+            }
+            if (arg == "--emit-extraction-preview") {
+                result.config.emit_extraction_preview = true;
+                continue;
+            }
+            if (arg == "--strict-san-replay") {
+                result.config.strict_san_replay = true;
+                continue;
+            }
+            if (arg == "--include-fen-snapshots") {
+                result.config.include_fen_snapshots = true;
+                continue;
+            }
+            if (arg == "--include-uci-moves") {
+                result.config.include_uci_moves = true;
+                continue;
+            }
             if (arg == "--input-format") {
                 result.config.input_format = require_value(argc, argv, index, arg);
                 continue;
@@ -173,9 +193,9 @@ CliParseResult parse_cli(int argc, char** argv) {
 void print_usage(std::ostream& stream, const std::string& program_name) {
     stream
         << "Usage: " << program_name << " [options]\n\n"
-        << "C++ corpus-builder scaffold with explicit preflight, deterministic PGN range planning, and header-only game-envelope scanning. scan-headers performs header-based eligibility classification only; SAN replay and final corpus aggregation remain deferred.\n\n"
+        << "C++ corpus-builder scaffold with explicit preflight, deterministic PGN range planning, and header-only game-envelope scanning. extract-openings performs accepted-game movetext replay and early-ply extraction, but final corpus aggregation remains deferred.\n\n"
         << "Options:\n"
-        << "  --mode <dry-run|preflight|plan-ranges|scan-headers>  Select builder mode. Default: dry-run.\n"
+        << "  --mode <dry-run|preflight|plan-ranges|scan-headers|extract-openings>  Select builder mode. Default: dry-run.\n"
         << "  --input-pgn <path>                      Path to the source PGN file. Required for preflight, plan-ranges, scan-headers, and dry-run.\n"
         << "  --output-dir <path>                     Directory where the artifact bundle will be created. Required for plan-ranges, scan-headers, and dry-run.\n"
         << "  --input-format <pgn>                    Explicit source format. Currently only 'pgn' is supported.\n"

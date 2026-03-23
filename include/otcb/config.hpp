@@ -20,6 +20,7 @@ enum class BuildMode {
     Preflight,
     PlanRanges,
     ScanHeaders,
+    ExtractOpenings,
 };
 
 std::string to_string(RatingPolicy policy);
@@ -50,6 +51,11 @@ struct BuildConfig {
     int header_preview_limit = 0;
     bool emit_header_preview = false;
     bool strict_header_scan = false;
+    int extraction_preview_limit = 0;
+    bool emit_extraction_preview = false;
+    bool strict_san_replay = false;
+    bool include_fen_snapshots = false;
+    bool include_uci_moves = false;
     std::string input_format = "pgn";
 };
 

@@ -343,6 +343,7 @@ HeaderScanResult scan_headers(const BuildConfig& config, const SourcePreflightIn
             if (envelope.classification == HeaderScanClassification::Accepted) {
                 ++range_summary.games_accepted;
                 ++result.summary.total_games_accepted;
+                result.accepted_games.push_back(envelope);
             } else {
                 ++range_summary.games_rejected;
                 ++result.summary.total_games_rejected;

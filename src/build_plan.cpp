@@ -102,4 +102,32 @@ BuildPlan make_scan_headers_build_plan(const SourcePreflightInfo& preflight_info
     return plan;
 }
 
+BuildPlan make_extract_openings_build_plan(const SourcePreflightInfo& preflight_info, const RangePlan& range_plan) {
+    BuildPlan plan;
+    plan.mode = "extract_openings";
+    plan.preflight_info = preflight_info;
+    plan.range_plan = range_plan;
+    plan.planning_completed = true;
+    plan.stages = {
+        {"validate_source", "completed", "Validated source readability, canonical path, and file metadata."},
+        {"plan_ranges", "completed", "Reused deterministic safe-start range planner for execution ownership."},
+        {"scan_headers", "completed", "Reused header eligibility gate to identify accepted games before replay."},
+        {"replay_openings", "completed", "Tokenized accepted-game movetext, replayed SAN, and emitted per-game opening sequences."},
+        {"serialize_payload", "scaffold_placeholder", "Placeholder positions payload preserved; final aggregated counts remain deferred."},
+    };
+    plan.not_yet_implemented = {
+        "Cross-game move-frequency aggregation",
+        "Sparse-position handling",
+        "Trainer-side consumption",
+        "Final payload encoding",
+    };
+    for (const auto& note : range_plan.plan_notes) {
+        if (note.find("Conservative") != std::string::npos || note.find("Stopped") != std::string::npos) {
+            plan.warnings.push_back(note);
+        }
+    }
+    return plan;
+}
+
+
 }  // namespace otcb

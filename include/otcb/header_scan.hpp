@@ -12,6 +12,7 @@ namespace otcb {
 
 struct HeaderScanResult {
     HeaderScanSummary summary;
+    std::vector<GameEnvelope> accepted_games;
     std::vector<GameEnvelope> preview_rows;
 };
 

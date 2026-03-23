@@ -6,6 +6,7 @@
 #include "otcb/build_plan.hpp"
 #include "otcb/header_scan.hpp"
 #include "otcb/manifest.hpp"
+#include "otcb/opening_extraction.hpp"
 
 namespace otcb {
 namespace {
@@ -24,7 +25,7 @@ void write_text_file(const std::filesystem::path& path, const std::string& conte
 void write_placeholder_payload(const std::filesystem::path& data_dir) {
     write_text_file(
         data_dir / "positions_placeholder.jsonl",
-        "{\"payload_status\":\"placeholder_non_final_payload\",\"record_type\":\"scaffold\",\"notes\":[\"No real position data has been generated yet.\"]}\n");
+        "{\"payload_status\":\"placeholder_non_final_payload\",\"record_type\":\"scaffold\",\"notes\":[\"No aggregated position-to-move payload has been generated yet.\"]}\n");
 }
 
 BundleWriteResult write_bundle(
@@ -33,19 +34,22 @@ BundleWriteResult write_bundle(
     const std::string& artifact_id,
     const bool emit_range_plan_files,
     const HeaderScanSummary* scan_summary = nullptr,
-    const std::vector<GameEnvelope>* preview_rows = nullptr) {
+    const std::vector<GameEnvelope>* preview_rows = nullptr,
+    const ExtractionSummary* extraction_summary = nullptr,
+    const std::vector<ExtractedOpeningSequence>* sequences = nullptr,
+    const std::vector<ExtractedOpeningSequence>* extraction_preview_rows = nullptr) {
     const std::filesystem::path bundle_root = config.output_dir / artifact_id;
     const std::filesystem::path data_dir = bundle_root / "data";
     const std::filesystem::path plans_dir = bundle_root / "plans";
 
     std::filesystem::create_directories(data_dir);
-    if (emit_range_plan_files || scan_summary != nullptr) {
+    if (emit_range_plan_files || scan_summary != nullptr || extraction_summary != nullptr) {
         std::filesystem::create_directories(plans_dir);
     }
 
-    const ManifestData manifest = make_manifest_data(config, plan, artifact_id, scan_summary);
+    const ManifestData manifest = make_manifest_data(config, plan, artifact_id, scan_summary, extraction_summary);
     write_text_file(bundle_root / "manifest.json", render_manifest_json(manifest));
-    write_text_file(bundle_root / "build_summary.txt", render_build_summary(config, plan, artifact_id, scan_summary));
+    write_text_file(bundle_root / "build_summary.txt", render_build_summary(config, plan, artifact_id, scan_summary, extraction_summary));
     write_placeholder_payload(data_dir);
 
     if (emit_range_plan_files && plan.range_plan) {
@@ -58,6 +62,16 @@ BundleWriteResult write_bundle(
     }
     if (preview_rows != nullptr && config.emit_header_preview) {
         write_text_file(data_dir / "header_scan_preview.jsonl", render_header_scan_preview_jsonl(*preview_rows));
+    }
+    if (extraction_summary != nullptr) {
+        write_text_file(plans_dir / "extraction_summary.json", render_extraction_summary_json(*extraction_summary));
+        write_text_file(plans_dir / "extraction_summary.txt", render_extraction_summary_text(config, *extraction_summary));
+    }
+    if (sequences != nullptr) {
+        write_text_file(data_dir / "extracted_opening_sequences.jsonl", render_extracted_opening_sequences_jsonl(*sequences, config.include_fen_snapshots, config.include_uci_moves));
+    }
+    if (extraction_preview_rows != nullptr && config.emit_extraction_preview) {
+        write_text_file(data_dir / "extraction_preview.jsonl", render_extraction_preview_jsonl(*extraction_preview_rows));
     }
 
     return BundleWriteResult{.bundle_root = bundle_root, .artifact_id = artifact_id};
@@ -87,6 +101,12 @@ BundleWriteResult write_scan_headers_bundle(const BuildConfig& config, const Sou
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_scan_headers_build_plan(preflight_info, range_plan);
     return write_bundle(config, plan, artifact_id, true, &scan_result.summary, &scan_result.preview_rows);
+}
+
+BundleWriteResult write_extract_openings_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const ExtractionResult& extraction_result) {
+    const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
+    const BuildPlan plan = make_extract_openings_build_plan(preflight_info, range_plan);
+    return write_bundle(config, plan, artifact_id, true, &extraction_result.scan_result.summary, &extraction_result.scan_result.preview_rows, &extraction_result.summary, &extraction_result.sequences, &extraction_result.preview_rows);
 }
 
 }  // namespace otcb

@@ -4,6 +4,7 @@
 #include "otcb/bundle_writer.hpp"
 #include "otcb/cli.hpp"
 #include "otcb/header_scan.hpp"
+#include "otcb/opening_extraction.hpp"
 #include "otcb/preflight.hpp"
 #include "otcb/range_plan.hpp"
 
@@ -61,10 +62,20 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        const auto scan_result = otcb::scan_headers(parsed.config, preflight, range_plan);
-        std::cout << otcb::render_range_execution_summary_text(parsed.config, scan_result.summary);
-        const auto result = otcb::write_scan_headers_bundle(parsed.config, preflight, range_plan, scan_result);
-        std::cout << "Header scan artifact bundle written to: " << result.bundle_root.lexically_normal().generic_string() << '\n';
+        if (parsed.config.mode == otcb::BuildMode::ScanHeaders) {
+            const auto scan_result = otcb::scan_headers(parsed.config, preflight, range_plan);
+            std::cout << otcb::render_range_execution_summary_text(parsed.config, scan_result.summary);
+            const auto result = otcb::write_scan_headers_bundle(parsed.config, preflight, range_plan, scan_result);
+            std::cout << "Header scan artifact bundle written to: " << result.bundle_root.lexically_normal().generic_string() << '\n';
+            std::cout << "Artifact id: " << result.artifact_id << '\n';
+            return 0;
+        }
+
+        const auto extraction_result = otcb::extract_openings(parsed.config, preflight, range_plan);
+        std::cout << otcb::render_range_execution_summary_text(parsed.config, extraction_result.scan_result.summary);
+        std::cout << otcb::render_extraction_summary_text(parsed.config, extraction_result.summary);
+        const auto result = otcb::write_extract_openings_bundle(parsed.config, preflight, range_plan, extraction_result);
+        std::cout << "Opening extraction artifact bundle written to: " << result.bundle_root.lexically_normal().generic_string() << '\n';
         std::cout << "Artifact id: " << result.artifact_id << '\n';
         return 0;
     } catch (const std::exception& ex) {
