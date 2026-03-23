@@ -158,20 +158,14 @@ ExtractionResult extract_openings(const BuildConfig& config, const SourcePreflig
             ExtractedPlyEvent event;
             event.ply_index = sequence.plies_extracted + 1;
             event.san = san;
-            if (config.include_uci_moves) {
-                event.uci = move_to_uci(*resolved.move);
-            }
-            if (config.include_fen_snapshots) {
-                event.fen_before = fen_before;
-            }
+            event.uci = move_to_uci(*resolved.move);
+            event.fen_before = fen_before;
             event.side_to_move_before = side_to_string(stm);
             event.move_was_legal = true;
 
             board.apply_move(*resolved.move);
             const std::string termination = termination_state(board);
-            if (config.include_fen_snapshots) {
-                event.fen_after = board.to_fen();
-            }
+            event.fen_after = board.to_fen();
             if (!termination.empty()) {
                 event.termination_after_move = termination;
             }

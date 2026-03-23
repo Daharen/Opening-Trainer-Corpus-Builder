@@ -23,6 +23,8 @@ add_executable(opening-trainer-corpus-builder
     src/san_tokenizer.cpp
     src/san_replay.cpp
     src/opening_extraction.cpp
+    src/position_key.cpp
+    src/aggregation.cpp
 )
 
 target_include_directories(opening-trainer-corpus-builder

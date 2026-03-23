@@ -21,6 +21,16 @@ enum class BuildMode {
     PlanRanges,
     ScanHeaders,
     ExtractOpenings,
+    AggregateCounts,
+};
+
+enum class PositionKeyFormat {
+    FenNormalized,
+    FenFull,
+};
+
+enum class MoveKeyFormat {
+    Uci,
 };
 
 std::string to_string(RatingPolicy policy);
@@ -29,6 +39,10 @@ std::string rating_policy_help();
 
 std::string to_string(BuildMode mode);
 std::optional<BuildMode> parse_build_mode(const std::string& value);
+std::string to_string(PositionKeyFormat format);
+std::optional<PositionKeyFormat> parse_position_key_format(const std::string& value);
+std::string to_string(MoveKeyFormat format);
+std::optional<MoveKeyFormat> parse_move_key_format(const std::string& value);
 
 struct BuildConfig {
     std::filesystem::path input_pgn;
@@ -56,6 +70,11 @@ struct BuildConfig {
     bool strict_san_replay = false;
     bool include_fen_snapshots = false;
     bool include_uci_moves = false;
+    int aggregate_preview_limit = 0;
+    bool emit_aggregate_preview = false;
+    std::optional<PositionKeyFormat> position_key_format;
+    std::optional<MoveKeyFormat> move_key_format;
+    int min_position_count = 1;
     std::string input_format = "pgn";
 };
 

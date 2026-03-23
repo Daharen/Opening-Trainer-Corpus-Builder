@@ -31,5 +31,6 @@ BuildPlan make_plan_ranges_build_plan(const SourcePreflightInfo& preflight_info,
 BuildPlan make_scan_headers_build_plan(const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
 
 BuildPlan make_extract_openings_build_plan(const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
+BuildPlan make_aggregate_counts_build_plan(const SourcePreflightInfo& preflight_info, const RangePlan& range_plan);
 
 }  // namespace otcb

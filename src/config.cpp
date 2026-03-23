@@ -54,6 +54,8 @@ std::string to_string(BuildMode mode) {
             return "scan-headers";
         case BuildMode::ExtractOpenings:
             return "extract-openings";
+        case BuildMode::AggregateCounts:
+            return "aggregate-counts";
     }
     return "unknown";
 }
@@ -74,6 +76,44 @@ std::optional<BuildMode> parse_build_mode(const std::string& value) {
     if (value == "extract-openings") {
         return BuildMode::ExtractOpenings;
     }
+    if (value == "aggregate-counts") {
+        return BuildMode::AggregateCounts;
+    }
+    return std::nullopt;
+}
+
+std::string to_string(const PositionKeyFormat format) {
+    switch (format) {
+        case PositionKeyFormat::FenNormalized:
+            return "fen_normalized";
+        case PositionKeyFormat::FenFull:
+            return "fen_full";
+    }
+    return "unknown";
+}
+
+std::optional<PositionKeyFormat> parse_position_key_format(const std::string& value) {
+    if (value == "fen_normalized") {
+        return PositionKeyFormat::FenNormalized;
+    }
+    if (value == "fen_full") {
+        return PositionKeyFormat::FenFull;
+    }
+    return std::nullopt;
+}
+
+std::string to_string(const MoveKeyFormat format) {
+    switch (format) {
+        case MoveKeyFormat::Uci:
+            return "uci";
+    }
+    return "unknown";
+}
+
+std::optional<MoveKeyFormat> parse_move_key_format(const std::string& value) {
+    if (value == "uci") {
+        return MoveKeyFormat::Uci;
+    }
     return std::nullopt;
 }
 
@@ -91,6 +131,11 @@ std::string derive_artifact_id(const BuildConfig& config) {
         if (config.max_ranges > 0) {
             builder << "_m" << config.max_ranges;
         }
+    }
+    if (config.mode == BuildMode::AggregateCounts) {
+        builder << "_pk" << to_string(*config.position_key_format);
+        builder << "_mk" << to_string(*config.move_key_format);
+        builder << "_mpc" << config.min_position_count;
     }
     return builder.str();
 }
@@ -131,18 +176,30 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.extraction_preview_limit < 0) {
         errors.emplace_back("--extraction-preview-limit must be greater than or equal to 0.");
     }
+    if (config.aggregate_preview_limit < 0) {
+        errors.emplace_back("--aggregate-preview-limit must be greater than or equal to 0.");
+    }
+    if (config.min_position_count < 1) {
+        errors.emplace_back("--min-position-count must be at least 1.");
+    }
     if (config.input_format != "pgn") {
         errors.emplace_back("--input-format currently only supports 'pgn'.");
     }
 
-    const bool input_required = config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings;
-    const bool output_required = config.dry_run || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings;
+    const bool input_required = config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts;
+    const bool output_required = config.dry_run || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts;
 
     if (input_required && config.input_pgn.empty()) {
         errors.emplace_back("--input-pgn is required for the selected build mode.");
     }
     if (output_required && config.output_dir.empty()) {
         errors.emplace_back("--output-dir is required for the selected build mode.");
+    }
+    if (config.mode == BuildMode::AggregateCounts && !config.position_key_format.has_value()) {
+        errors.emplace_back("--position-key-format is required for aggregate-counts and must be explicit.");
+    }
+    if (config.mode == BuildMode::AggregateCounts && !config.move_key_format.has_value()) {
+        errors.emplace_back("--move-key-format is required for aggregate-counts and must be explicit.");
     }
 
     return errors;

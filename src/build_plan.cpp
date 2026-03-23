@@ -129,5 +129,32 @@ BuildPlan make_extract_openings_build_plan(const SourcePreflightInfo& preflight_
     return plan;
 }
 
+BuildPlan make_aggregate_counts_build_plan(const SourcePreflightInfo& preflight_info, const RangePlan& range_plan) {
+    BuildPlan plan;
+    plan.mode = "aggregate_counts";
+    plan.preflight_info = preflight_info;
+    plan.range_plan = range_plan;
+    plan.planning_completed = true;
+    plan.stages = {
+        {"validate_source", "completed", "Validated source readability, canonical path, and file metadata."},
+        {"plan_ranges", "completed", "Reused deterministic safe-start range planner for execution ownership."},
+        {"scan_headers", "completed", "Reused header eligibility gate to identify accepted games before replay."},
+        {"replay_openings", "completed", "Reused accepted-game SAN replay and early-ply extraction before aggregation."},
+        {"aggregate_counts", "completed", "Aggregated canonical position->UCI raw counts with deterministic ordering and explicit min-position-count filtering."},
+        {"serialize_payload", "completed", "Emitted inspectable aggregate payloads plus summaries; shaping and trainer-side semantics remain deferred."},
+    };
+    plan.not_yet_implemented = {
+        "Sparse shaping",
+        "Rare-move suppression",
+        "Hybrid weighting",
+        "Trainer-side consumption",
+    };
+    for (const auto& note : range_plan.plan_notes) {
+        if (note.find("Conservative") != std::string::npos || note.find("Stopped") != std::string::npos) {
+            plan.warnings.push_back(note);
+        }
+    }
+    return plan;
+}
 
 }  // namespace otcb
