@@ -26,7 +26,10 @@ add_executable(opening-trainer-corpus-builder
     src/opening_extraction.cpp
     src/position_key.cpp
     src/aggregation.cpp
+    src/sqlite_writer.cpp
 )
+
+find_package(SQLite3 REQUIRED)
 
 target_include_directories(opening-trainer-corpus-builder
     PRIVATE
@@ -37,4 +40,16 @@ if(MSVC)
     target_compile_options(opening-trainer-corpus-builder PRIVATE /W4 /permissive-)
 else()
     target_compile_options(opening-trainer-corpus-builder PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+target_link_libraries(opening-trainer-corpus-builder PRIVATE SQLite::SQLite3)
+
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(
+        NAME sqlite_aggregate_payload_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_sqlite_payload.py
+                $<TARGET_FILE:opening-trainer-corpus-builder> ${CMAKE_CURRENT_SOURCE_DIR}
+    )
 endif()

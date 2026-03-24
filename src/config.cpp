@@ -117,6 +117,26 @@ std::optional<MoveKeyFormat> parse_move_key_format(const std::string& value) {
     return std::nullopt;
 }
 
+std::string to_string(const PayloadFormat format) {
+    switch (format) {
+        case PayloadFormat::Jsonl:
+            return "jsonl";
+        case PayloadFormat::Sqlite:
+            return "sqlite";
+    }
+    return "unknown";
+}
+
+std::optional<PayloadFormat> parse_payload_format(const std::string& value) {
+    if (value == "jsonl") {
+        return PayloadFormat::Jsonl;
+    }
+    if (value == "sqlite") {
+        return PayloadFormat::Sqlite;
+    }
+    return std::nullopt;
+}
+
 std::string derive_artifact_id(const BuildConfig& config) {
     std::ostringstream builder;
     builder << "scaffold_";
@@ -136,6 +156,7 @@ std::string derive_artifact_id(const BuildConfig& config) {
         builder << "_pk" << to_string(*config.position_key_format);
         builder << "_mk" << to_string(*config.move_key_format);
         builder << "_mpc" << config.min_position_count;
+        builder << "_pf" << to_string(config.payload_format);
     }
     return builder.str();
 }
@@ -203,6 +224,9 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     }
     if (config.mode == BuildMode::AggregateCounts && !config.move_key_format.has_value()) {
         errors.emplace_back("--move-key-format is required for aggregate-counts and must be explicit.");
+    }
+    if (config.mode != BuildMode::AggregateCounts && config.payload_format != PayloadFormat::Jsonl) {
+        errors.emplace_back("--payload-format currently only supports aggregate-counts mode.");
     }
 
     return errors;

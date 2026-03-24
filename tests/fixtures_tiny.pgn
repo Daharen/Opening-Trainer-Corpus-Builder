@@ -1,0 +1,11 @@
+[Event "Test"]
+[Site "Local"]
+[Date "2024.01.01"]
+[Round "1"]
+[White "Alpha"]
+[Black "Beta"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+
+1. e4 e5 2. Nf3 Nc6 1-0
