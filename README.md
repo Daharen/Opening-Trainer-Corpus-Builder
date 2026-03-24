@@ -19,3 +19,14 @@ Generated bundles can include:
 - `data/corpus.sqlite` for SQLite aggregate payloads when explicitly requested
 
 Use `--help` to see the full CLI surface, including explicit rating-policy semantics and the honesty note that move replay/final corpus payload emission are still deferred.
+
+
+## SQLite dependency model
+
+SQLite aggregate payload output is wired through a repo-local dependency path by default.
+The CMake option `OTCB_USE_SYSTEM_SQLITE` is available for environments that prefer an
+already-installed SQLite package, but ordinary local builds should not require configuring
+`find_package(SQLite3)` explicitly.
+
+- Default: `-DOTCB_USE_SYSTEM_SQLITE=OFF`
+- Optional system path: `-DOTCB_USE_SYSTEM_SQLITE=ON`
