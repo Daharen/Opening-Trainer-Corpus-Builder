@@ -54,6 +54,8 @@ AggregationResult aggregate_counts(const BuildConfig& config, const SourcePrefli
     result.summary.min_position_count = config.min_position_count;
     result.summary.position_key_format = to_string(*config.position_key_format);
     result.summary.move_key_format = to_string(*config.move_key_format);
+    result.summary.payload_format = to_string(config.payload_format);
+    result.summary.payload_path = config.payload_format == PayloadFormat::Sqlite ? "data/corpus.sqlite" : "data/aggregated_position_move_counts.jsonl";
     result.summary.notes.push_back("aggregate-counts reuses deterministic range ownership, upstream header eligibility filtering, and accepted-game SAN replay before position->move raw-count aggregation.");
     result.summary.notes.push_back("Payload contains raw counts only; shaping, sparse suppression, rare-move suppression, weighting, and trainer-side consumption remain deferred.");
 
@@ -250,6 +252,10 @@ std::string render_aggregation_summary_json(const AggregationSummary& summary) {
         << "  \"total_aggregate_move_entries_emitted\": " << summary.total_aggregate_move_entries_emitted << ",\n"
         << "  \"total_raw_observations_emitted\": " << summary.total_raw_observations_emitted << ",\n"
         << "  \"min_position_count\": " << summary.min_position_count << ",\n"
+        << "  \"payload_format\": \"" << json_escape(summary.payload_format) << "\",\n"
+        << "  \"payload_path\": \"" << json_escape(summary.payload_path) << "\",\n"
+        << "  \"sqlite_positions_rows\": " << summary.sqlite_positions_rows << ",\n"
+        << "  \"sqlite_moves_rows\": " << summary.sqlite_moves_rows << ",\n"
         << "  \"notes\": [\n";
     for (std::size_t i = 0; i < summary.notes.size(); ++i) {
         out << "    \"" << json_escape(summary.notes[i]) << "\"" << (i + 1 < summary.notes.size() ? "," : "") << "\n";
@@ -268,6 +274,8 @@ std::string render_aggregation_summary_text(const BuildConfig& config, const Agg
     out << "retained ply: " << summary.retained_ply << "\n";
     out << "position key format: " << summary.position_key_format << "\n";
     out << "move key format: " << summary.move_key_format << "\n";
+    out << "payload format: " << summary.payload_format << "\n";
+    out << "payload path: " << summary.payload_path << "\n";
     out << "total accepted games: " << summary.total_games_accepted_upstream << "\n";
     out << "total replay successes: " << summary.total_replay_successes << "\n";
     out << "total extracted ply events consumed: " << summary.total_extracted_ply_events_consumed << "\n";
@@ -275,6 +283,9 @@ std::string render_aggregation_summary_text(const BuildConfig& config, const Agg
     out << "total raw observations emitted: " << summary.total_raw_observations_emitted << "\n";
     out << "min-position-count filtering impact: positions_filtered=" << summary.positions_filtered_by_min_count << ", observations_filtered=" << summary.observations_filtered_by_min_count << "\n";
     out << "aggregate preview rows emitted: " << summary.preview_row_count_emitted << "\n";
+    if (summary.payload_format == "sqlite") {
+        out << "sqlite rows: positions=" << summary.sqlite_positions_rows << ", moves=" << summary.sqlite_moves_rows << "\n";
+    }
     out << "note: shaping, suppression, weighting, and trainer-side consumption remain deferred.\n";
     return out.str();
 }

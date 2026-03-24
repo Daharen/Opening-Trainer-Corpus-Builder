@@ -36,6 +36,7 @@ struct ManifestData {
     std::string progress_reporting_mode;
     bool raw_counts_preserved = false;
     bool effective_weights_precomputed = false;
+    std::string payload_format;
     std::string position_key_format;
     std::string move_key_format;
     std::uint64_t planner_target_range_bytes = 0;
@@ -64,6 +65,7 @@ struct ManifestData {
     bool include_uci_moves = false;
     std::string extracted_sequence_file;
     std::string aggregate_position_file;
+    std::string aggregate_sqlite_file;
     std::string scan_algorithm;
     std::string replay_algorithm;
     std::string aggregation_algorithm;
@@ -72,6 +74,8 @@ struct ManifestData {
     int aggregate_move_entries_emitted = 0;
     int raw_observations_emitted = 0;
     int min_position_count = 0;
+    int sqlite_positions_rows = 0;
+    int sqlite_moves_rows = 0;
     std::vector<std::string> payload_files;
     std::string payload_status;
     std::vector<std::string> notes;

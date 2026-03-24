@@ -9,6 +9,7 @@
 #include "otcb/manifest.hpp"
 #include "otcb/opening_extraction.hpp"
 #include "otcb/progress.hpp"
+#include "otcb/sqlite_writer.hpp"
 
 namespace otcb {
 namespace {
@@ -28,6 +29,63 @@ void write_placeholder_payload(const std::filesystem::path& data_dir) {
     write_text_file(
         data_dir / "positions_placeholder.jsonl",
         "{\"payload_status\":\"placeholder_non_final_payload\",\"record_type\":\"scaffold\",\"notes\":[\"Raw aggregation is not present for this mode.\"]}\n");
+}
+
+std::string json_escape(const std::string& input) {
+    std::string escaped;
+    escaped.reserve(input.size());
+    for (const char ch : input) {
+        switch (ch) {
+            case '\\': escaped += "\\\\"; break;
+            case '"': escaped += "\\\""; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default: escaped += ch; break;
+        }
+    }
+    return escaped;
+}
+
+void write_aggregate_jsonl_streaming(const std::filesystem::path& path, const std::vector<AggregatedPositionRecord>& positions, const BuildConfig& config) {
+    std::ofstream output(path, std::ios::binary);
+    if (!output) {
+        throw std::runtime_error("Failed to open aggregate JSONL payload for writing: " + path.string());
+    }
+    for (const auto& record : positions) {
+        output << '{'
+               << "\"position_key\":\"" << json_escape(record.position_key) << "\","
+               << "\"position_key_format\":\"" << json_escape(to_string(*config.position_key_format)) << "\","
+               << "\"side_to_move\":\"" << json_escape(record.side_to_move) << "\","
+               << "\"candidate_move_count\":" << record.candidate_move_count << ','
+               << "\"total_observations\":" << record.total_observations << ','
+               << "\"candidate_moves\":[";
+        for (std::size_t i = 0; i < record.candidate_moves.size(); ++i) {
+            const auto& move = record.candidate_moves[i];
+            output << '{'
+                   << "\"move_key\":\"" << json_escape(move.move_key) << "\","
+                   << "\"move_key_format\":\"" << json_escape(to_string(*config.move_key_format)) << "\","
+                   << "\"raw_count\":" << move.raw_count;
+            if (!move.example_san.empty()) {
+                output << ",\"example_san\":\"" << json_escape(move.example_san) << "\"";
+            }
+            output << '}';
+            if (i + 1 < record.candidate_moves.size()) {
+                output << ',';
+            }
+        }
+        output << "]}\n";
+    }
+    output.flush();
+    if (!output.good()) {
+        throw std::runtime_error("Failed while writing aggregate JSONL payload: " + path.string());
+    }
+    if (!std::filesystem::exists(path)) {
+        throw std::runtime_error("Aggregate JSONL payload missing after write: " + path.string());
+    }
+    if (std::filesystem::file_size(path) == 0) {
+        throw std::runtime_error("Aggregate JSONL payload is empty after write: " + path.string());
+    }
 }
 
 BundleWriteResult write_bundle(
@@ -56,9 +114,26 @@ BundleWriteResult write_bundle(
         std::filesystem::create_directories(plans_dir);
     }
 
-    const ManifestData manifest = make_manifest_data(config, plan, artifact_id, scan_summary, extraction_summary, aggregation_summary);
+    AggregationSummary enriched_aggregation_summary;
+    const AggregationSummary* manifest_aggregation_summary = aggregation_summary;
+    if (aggregation_summary != nullptr) {
+        enriched_aggregation_summary = *aggregation_summary;
+    }
+
+    if (aggregate_positions != nullptr) {
+        if (config.payload_format == PayloadFormat::Sqlite) {
+            const auto sqlite_stats = write_aggregate_payload_sqlite(data_dir / "corpus.sqlite", config, artifact_id, *aggregation_summary, *aggregate_positions);
+            enriched_aggregation_summary.sqlite_positions_rows = sqlite_stats.positions_rows;
+            enriched_aggregation_summary.sqlite_moves_rows = sqlite_stats.moves_rows;
+            manifest_aggregation_summary = &enriched_aggregation_summary;
+        } else {
+            write_aggregate_jsonl_streaming(data_dir / "aggregated_position_move_counts.jsonl", *aggregate_positions, config);
+        }
+    }
+
+    const ManifestData manifest = make_manifest_data(config, plan, artifact_id, scan_summary, extraction_summary, manifest_aggregation_summary);
     write_text_file(bundle_root / "manifest.json", render_manifest_json(manifest));
-    write_text_file(bundle_root / "build_summary.txt", render_build_summary(config, plan, artifact_id, scan_summary, extraction_summary, aggregation_summary));
+    write_text_file(bundle_root / "build_summary.txt", render_build_summary(config, plan, artifact_id, scan_summary, extraction_summary, manifest_aggregation_summary));
     write_placeholder_payload(data_dir);
 
     if (emit_range_plan_files && plan.range_plan) {
@@ -82,12 +157,9 @@ BundleWriteResult write_bundle(
     if (extraction_preview_rows != nullptr && config.emit_extraction_preview) {
         write_text_file(data_dir / "extraction_preview.jsonl", render_extraction_preview_jsonl(*extraction_preview_rows));
     }
-    if (aggregation_summary != nullptr) {
-        write_text_file(plans_dir / "aggregation_summary.json", render_aggregation_summary_json(*aggregation_summary));
-        write_text_file(plans_dir / "aggregation_summary.txt", render_aggregation_summary_text(config, *aggregation_summary));
-    }
-    if (aggregate_positions != nullptr) {
-        write_text_file(data_dir / "aggregated_position_move_counts.jsonl", render_aggregated_position_move_counts_jsonl(*aggregate_positions, config));
+    if (manifest_aggregation_summary != nullptr) {
+        write_text_file(plans_dir / "aggregation_summary.json", render_aggregation_summary_json(*manifest_aggregation_summary));
+        write_text_file(plans_dir / "aggregation_summary.txt", render_aggregation_summary_text(config, *manifest_aggregation_summary));
     }
     if (aggregate_preview_rows != nullptr && config.emit_aggregate_preview) {
         write_text_file(data_dir / "aggregate_preview.jsonl", render_aggregate_preview_jsonl(*aggregate_preview_rows, config));

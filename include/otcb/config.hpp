@@ -33,6 +33,11 @@ enum class MoveKeyFormat {
     Uci,
 };
 
+enum class PayloadFormat {
+    Jsonl,
+    Sqlite,
+};
+
 std::string to_string(RatingPolicy policy);
 std::optional<RatingPolicy> parse_rating_policy(const std::string& value);
 std::string rating_policy_help();
@@ -43,6 +48,8 @@ std::string to_string(PositionKeyFormat format);
 std::optional<PositionKeyFormat> parse_position_key_format(const std::string& value);
 std::string to_string(MoveKeyFormat format);
 std::optional<MoveKeyFormat> parse_move_key_format(const std::string& value);
+std::string to_string(PayloadFormat format);
+std::optional<PayloadFormat> parse_payload_format(const std::string& value);
 
 struct BuildConfig {
     std::filesystem::path input_pgn;
@@ -76,6 +83,7 @@ struct BuildConfig {
     std::optional<PositionKeyFormat> position_key_format;
     std::optional<MoveKeyFormat> move_key_format;
     int min_position_count = 1;
+    PayloadFormat payload_format = PayloadFormat::Jsonl;
     std::string input_format = "pgn";
     bool emit_progress_log = false;
     bool emit_status_json = false;

@@ -49,6 +49,10 @@ struct AggregationSummary {
     int preview_row_count_emitted = 0;
     std::string position_key_format;
     std::string move_key_format;
+    std::string payload_format;
+    std::string payload_path;
+    int sqlite_positions_rows = 0;
+    int sqlite_moves_rows = 0;
     std::vector<std::string> notes;
 };
 

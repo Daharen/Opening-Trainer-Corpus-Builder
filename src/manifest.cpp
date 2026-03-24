@@ -51,6 +51,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.progress_reporting_mode = progress_mode_string(config);
     manifest.raw_counts_preserved = true;
     manifest.effective_weights_precomputed = false;
+    manifest.payload_format = to_string(config.payload_format);
     manifest.position_key_format = config.position_key_format.has_value() ? to_string(*config.position_key_format) : "not_yet_implemented_scaffold_position_keys";
     manifest.move_key_format = config.move_key_format.has_value() ? to_string(*config.move_key_format) : "not_yet_implemented_scaffold_move_keys";
     manifest.planner_target_range_bytes = config.target_range_bytes;
@@ -70,7 +71,8 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.include_fen_snapshots = config.include_fen_snapshots;
     manifest.include_uci_moves = config.include_uci_moves;
     manifest.extracted_sequence_file = extraction_summary != nullptr || aggregation_summary != nullptr ? "data/extracted_opening_sequences.jsonl" : "";
-    manifest.aggregate_position_file = aggregation_summary ? "data/aggregated_position_move_counts.jsonl" : "";
+    manifest.aggregate_position_file = (aggregation_summary && config.payload_format == PayloadFormat::Jsonl) ? "data/aggregated_position_move_counts.jsonl" : "";
+    manifest.aggregate_sqlite_file = (aggregation_summary && config.payload_format == PayloadFormat::Sqlite) ? "data/corpus.sqlite" : "";
     manifest.scan_algorithm = scan_summary ? scan_summary->scan_algorithm : "not_requested";
     manifest.replay_algorithm = extraction_summary || aggregation_summary ? "accepted_game_streaming_tokenize_and_legal_san_replay_v1" : "not_requested";
     manifest.aggregation_algorithm = aggregation_summary ? "deterministic_position_key_then_uci_raw_count_v1" : "not_requested";
@@ -108,7 +110,14 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
         manifest.raw_observations_emitted = aggregation_summary->total_raw_observations_emitted;
         manifest.min_position_count = aggregation_summary->min_position_count;
         manifest.payload_files.push_back("data/extracted_opening_sequences.jsonl");
-        manifest.payload_files.push_back("data/aggregated_position_move_counts.jsonl");
+        if (config.payload_format == PayloadFormat::Sqlite) {
+            manifest.payload_files.push_back("data/corpus.sqlite");
+            manifest.sqlite_positions_rows = aggregation_summary->sqlite_positions_rows;
+            manifest.sqlite_moves_rows = aggregation_summary->sqlite_moves_rows;
+        } else {
+            manifest.payload_files.push_back("data/aggregated_position_move_counts.jsonl");
+            manifest.aggregate_sqlite_file.clear();
+        }
         if (config.emit_aggregate_preview) manifest.payload_files.push_back("data/aggregate_preview.jsonl");
         manifest.payload_status = "raw_aggregate_counts_present_non_final_trainer_payload";
         manifest.notes.push_back("aggregate-counts emits raw aggregated position->move counts now, while shaping, suppression, weighting, and final trainer-side consumption remain deferred.");
@@ -146,6 +155,7 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"progress_reporting_mode\": \"" << json_escape(manifest.progress_reporting_mode) << "\",\n";
     output << "  \"raw_counts_preserved\": " << (manifest.raw_counts_preserved ? "true" : "false") << ",\n";
     output << "  \"effective_weights_precomputed\": " << (manifest.effective_weights_precomputed ? "true" : "false") << ",\n";
+    output << "  \"payload_format\": \"" << json_escape(manifest.payload_format) << "\",\n";
     output << "  \"position_key_format\": \"" << json_escape(manifest.position_key_format) << "\",\n";
     output << "  \"move_key_format\": \"" << json_escape(manifest.move_key_format) << "\",\n";
     output << "  \"planner_target_range_bytes\": " << manifest.planner_target_range_bytes << ",\n";
@@ -163,6 +173,7 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"replay_failures\": " << manifest.replay_failures << ",\n";
     output << "  \"total_extracted_ply_events\": " << manifest.total_extracted_ply_events << ",\n";
     output << "  \"aggregate_position_file\": \"" << json_escape(manifest.aggregate_position_file) << "\",\n";
+    output << "  \"aggregate_sqlite_file\": \"" << json_escape(manifest.aggregate_sqlite_file) << "\",\n";
     output << "  \"header_scan_preview_emitted\": " << (manifest.header_scan_preview_emitted ? "true" : "false") << ",\n";
     output << "  \"header_scan_preview_file\": \"" << json_escape(manifest.header_scan_preview_file) << "\",\n";
     output << "  \"movetext_replay_performed\": " << (manifest.movetext_replay_performed ? "true" : "false") << ",\n";
@@ -180,6 +191,8 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"aggregate_move_entries_emitted\": " << manifest.aggregate_move_entries_emitted << ",\n";
     output << "  \"raw_observations_emitted\": " << manifest.raw_observations_emitted << ",\n";
     output << "  \"min_position_count\": " << manifest.min_position_count << ",\n";
+    output << "  \"sqlite_positions_rows\": " << manifest.sqlite_positions_rows << ",\n";
+    output << "  \"sqlite_moves_rows\": " << manifest.sqlite_moves_rows << ",\n";
     output << "  \"eligibility_counts\": {\n";
     for (auto it = manifest.eligibility_counts.begin(); it != manifest.eligibility_counts.end(); ++it) {
         output << "    \"" << json_escape(it->first) << "\": " << it->second << (std::next(it) != manifest.eligibility_counts.end() ? "," : "") << "\n";
@@ -223,6 +236,8 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
     if (config.position_key_format.has_value()) output << "position key format: " << to_string(*config.position_key_format) << "\n";
     if (config.move_key_format.has_value()) output << "move key format: " << to_string(*config.move_key_format) << "\n";
     output << "min position count: " << config.min_position_count << "\n";
+    output << "payload format: " << to_string(config.payload_format) << "\n";
+    output << "payload path: " << (config.payload_format == PayloadFormat::Sqlite ? "data/corpus.sqlite" : "data/aggregated_position_move_counts.jsonl") << "\n";
     output << "planning completed successfully: " << (plan.planning_completed ? "yes" : "no") << "\n";
     if (plan.preflight_info) {
         output << "source file size: " << plan.preflight_info->file_size_bytes << "\n";
@@ -251,6 +266,9 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
         output << "total extracted ply events consumed: " << aggregation_summary->total_extracted_ply_events_consumed << "\n";
         output << "total unique positions emitted: " << aggregation_summary->total_unique_positions_emitted << "\n";
         output << "total raw observations emitted: " << aggregation_summary->total_raw_observations_emitted << "\n";
+        if (config.payload_format == PayloadFormat::Sqlite) {
+            output << "sqlite row counts: positions=" << aggregation_summary->sqlite_positions_rows << ", moves=" << aggregation_summary->sqlite_moves_rows << "\n";
+        }
         output << "aggregate preview rows emitted: " << aggregation_summary->preview_row_count_emitted << "\n";
         output << "explicit shaping remains deferred: yes\n";
     } else if (scan_summary) {

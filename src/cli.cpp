@@ -124,6 +124,12 @@ CliParseResult parse_cli(int argc, char** argv) {
                 continue;
             }
             if (arg == "--min-position-count") { result.config.min_position_count = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--payload-format") {
+                const auto parsed = parse_payload_format(require_value(argc, argv, index, arg));
+                if (!parsed.has_value()) throw std::runtime_error("Invalid value for --payload-format. Supported: jsonl, sqlite.");
+                result.config.payload_format = *parsed;
+                continue;
+            }
             if (arg == "--input-format") { result.config.input_format = require_value(argc, argv, index, arg); continue; }
             throw std::runtime_error("Unknown argument: " + arg);
         }
@@ -180,6 +186,7 @@ void print_usage(std::ostream& stream, const std::string& program_name) {
         << "  --position-key-format <fen_normalized|fen_full>  Explicit aggregate position identity semantics. Required for aggregate-counts.\n"
         << "  --move-key-format <uci>                 Explicit aggregate move identity semantics. Required for aggregate-counts.\n"
         << "  --min-position-count <int>              Filter aggregated positions after counting. Must be >= 1.\n"
+        << "  --payload-format <jsonl|sqlite>         Aggregate payload encoding. Default: jsonl. Only valid for aggregate-counts.\n"
         << "  --dry-run                               Legacy alias for --mode dry-run.\n"
         << "  --help                                  Print this help message and exit.\n"
         << "\nLive progress guarantee: during active stages the builder emits a flushed heartbeat at least once every --heartbeat-seconds (default 30, max 60), even when work-unit counters are changing slowly.\n";
