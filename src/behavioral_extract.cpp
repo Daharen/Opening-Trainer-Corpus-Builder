@@ -16,7 +16,13 @@
 #include <string>
 #include <vector>
 
+#ifndef OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD
+#define OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD 0
+#endif
+
+#if OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD
 #include <zstd.h>
+#endif
 
 #include "otcb/chess_board.hpp"
 #include "otcb/chess_types.hpp"
@@ -185,6 +191,9 @@ public:
         }
         is_zst_ = path.extension() == ".zst";
         if (!is_zst_) return;
+#if !OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD
+        throw std::runtime_error("this build does not include zstd input support; provide plain .pgn input or rebuild with zstd enabled.");
+#else
 
         std::array<unsigned char, 4> magic{};
         file_.read(reinterpret_cast<char*>(magic.data()), static_cast<std::streamsize>(magic.size()));
@@ -200,10 +209,13 @@ public:
         if (!dstream_) throw std::runtime_error("Failed to create zstd stream.");
         const auto init = ZSTD_initDStream(dstream_);
         if (ZSTD_isError(init)) throw std::runtime_error("Failed to init zstd stream.");
+#endif
     }
 
     ~LineReader() {
+#if OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD
         if (dstream_) ZSTD_freeDStream(dstream_);
+#endif
     }
 
     bool getline(std::string& line) {
@@ -238,6 +250,7 @@ private:
             return true;
         }
 
+#if OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD
         std::array<char, 131072> inbuf{};
         std::array<char, 131072> outbuf{};
         while (true) {
@@ -257,15 +270,20 @@ private:
             }
             if (ret == 0 && zin_.pos == zin_.size) return false;
         }
+#else
+        throw std::runtime_error("this build does not include zstd input support; provide plain .pgn input or rebuild with zstd enabled.");
+#endif
     }
 
     std::filesystem::path path_;
     std::ifstream file_;
     bool is_zst_ = false;
     std::string pending_;
+#if OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD
     ZSTD_DStream* dstream_ = nullptr;
     std::string zinput_storage_;
     ZSTD_inBuffer zin_{nullptr, 0, 0};
+#endif
 };
 
 static std::string infer_month(const ParsedGame& game, const BehavioralExtractOptions& opts) {
@@ -393,6 +411,8 @@ void print_behavioral_extract_usage(const std::string& program_name) {
     std::cout
         << "Usage: " << program_name << " --input <pgn|pgn.zst> [--input ...] --output <sqlite> [options]\n"
         << "Options:\n"
+        << "  --input <path>                        Input source path (.pgn always supported; .pgn.zst requires zstd-enabled build).\n"
+        << "  --output <path>                       Output SQLite path.\n"
         << "  --time-controls <initial+increment>   Optional include filter; repeatable.\n"
         << "  --elo-bands <lo-hi>                   Optional include filter; repeatable (200-point default band policy).\n"
         << "  --month <YYYY-MM>                     Optional source month override.\n"
@@ -404,6 +424,11 @@ void print_behavioral_extract_usage(const std::string& program_name) {
         << "  --emit-invalid-report                 Persist invalid_rows entries.\n"
         << "  --source-label <label>                Optional source label persisted in manifest summary.\n"
         << "  --strict                              Fail hard on malformed timed records.\n";
+#if OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD
+    std::cout << "Build feature: zstd input support enabled (.pgn.zst accepted when zstd magic is present).\n";
+#else
+    std::cout << "Build feature: zstd input support disabled (.pgn.zst rejected; provide plain .pgn input or rebuild with zstd enabled).\n";
+#endif
 }
 
 BehavioralExtractCounters build_behavioral_training_extract(const BehavioralExtractOptions& options) {

@@ -33,6 +33,7 @@ def digest_rows(rows):
 def main():
     exe = Path(sys.argv[1])
     repo = Path(sys.argv[2])
+    zstd_enabled = bool(int(sys.argv[3])) if len(sys.argv) > 3 else False
     fixture = repo / "tests" / "fixtures_timed_small.pgn"
 
     work = repo / "build" / "behavioral_extract_test"
@@ -48,7 +49,6 @@ def main():
     out = run([
         str(exe),
         "--input", str(fixture),
-        "--input", str(zst_like),
         "--output", str(db1),
         "--overwrite",
         "--time-controls", "300+2",
@@ -79,7 +79,6 @@ def main():
     run([
         str(exe),
         "--input", str(fixture),
-        "--input", str(zst_like),
         "--output", str(db2),
         "--overwrite",
         "--time-controls", "300+2",
@@ -89,6 +88,28 @@ def main():
     rows1 = fetchall(db1, "SELECT game_id,source_file,source_month,game_ply_index,move_uci,think_time_seconds,mover_clock_ratio,think_time_ratio,clock_pressure_bucket,prev_opp_think_bucket FROM move_events ORDER BY source_file, game_id, game_ply_index")
     rows2 = fetchall(db2, "SELECT game_id,source_file,source_month,game_ply_index,move_uci,think_time_seconds,mover_clock_ratio,think_time_ratio,clock_pressure_bucket,prev_opp_think_bucket FROM move_events ORDER BY source_file, game_id, game_ply_index")
     assert digest_rows(rows1) == digest_rows(rows2)
+
+    if zstd_enabled:
+        run([
+            str(exe),
+            "--input", str(zst_like),
+            "--output", str(work / "extract_zstd.sqlite"),
+            "--overwrite",
+            "--time-controls", "300+2",
+            "--month", "2024-01",
+        ])
+    else:
+        cp = subprocess.run([
+            str(exe),
+            "--input", str(zst_like),
+            "--output", str(work / "extract_zstd.sqlite"),
+            "--overwrite",
+            "--time-controls", "300+2",
+            "--month", "2024-01",
+        ], text=True, capture_output=True)
+        assert cp.returncode != 0
+        combined = f"{cp.stdout}\n{cp.stderr}"
+        assert "does not include zstd input support" in combined
 
     print("behavioral_extract_validation_ok")
 
