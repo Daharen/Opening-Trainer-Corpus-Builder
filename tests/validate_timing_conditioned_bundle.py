@@ -19,7 +19,7 @@ def digest_bundle(bundle_path: Path) -> str:
     h = hashlib.sha256()
     manifest_bytes = (bundle_path / "manifest.json").read_bytes()
     h.update(manifest_bytes)
-    for file_name in ["exact_corpus.sqlite", "behavioral_profile_set.sqlite"]:
+    for file_name in ["corpus.sqlite", "exact_corpus.sqlite", "behavioral_profile_set.sqlite", "timing_overlay.json"]:
         h.update((bundle_path / "data" / file_name).read_bytes())
     return h.hexdigest()
 
@@ -112,19 +112,66 @@ def main():
         "behavioral_profile_set_artifact_identity",
         "timing_overlay_policy_version",
         "context_key_contract_version",
+        "build_status",
+        "payload_format",
+        "position_key_format",
+        "move_key_format",
+        "retained_ply_depth",
+        "sqlite_corpus_file",
+        "corpus_sqlite_file",
+        "payload_file",
+        "payload_status",
+        "timing_overlay_file",
         "compatibility_warnings",
     ]
     for field in required_fields:
         assert field in manifest, field
 
+    assert (bundle_a / "data" / "corpus.sqlite").exists()
     assert (bundle_a / "data" / "exact_corpus.sqlite").exists()
     assert (bundle_a / "data" / "behavioral_profile_set.sqlite").exists()
+    assert (bundle_a / "data" / "timing_overlay.json").exists()
+    assert manifest["build_status"] == "aggregation_complete"
+    assert manifest["payload_format"] == "sqlite"
+    assert manifest["position_key_format"] == "fen_normalized"
+    assert manifest["move_key_format"] == "uci"
+    assert manifest["sqlite_corpus_file"] == "data/corpus.sqlite"
+    assert manifest["corpus_sqlite_file"] == "data/corpus.sqlite"
+    assert manifest["payload_file"] == "data/corpus.sqlite"
+    assert manifest["timing_overlay_file"] == "data/timing_overlay.json"
+
+    overlay = json.loads((bundle_a / "data" / "timing_overlay.json").read_text())
+    assert overlay["context_contract_version"] == manifest["context_key_contract_version"]
+    assert overlay["timing_overlay_policy_version"] == manifest["timing_overlay_policy_version"]
+    assert isinstance(overlay["move_pressure_profiles"], dict)
+    assert isinstance(overlay["think_time_profiles"], dict)
+    assert isinstance(overlay["context_profile_map"], dict)
+    assert overlay["move_pressure_profiles"]
+    assert overlay["think_time_profiles"]
+    assert overlay["context_profile_map"]
+    sample_move = next(iter(overlay["move_pressure_profiles"].values()))
+    for field in ["pressure_sensitivity", "decisiveness", "move_diversity"]:
+        assert field in sample_move
+    sample_think = next(iter(overlay["think_time_profiles"].values()))
+    for field in ["base_time_scale", "spread", "short_mass", "deep_think_tail_mass", "timeout_tail_mass"]:
+        assert field in sample_think
+    sample_context_key, sample_context_value = next(iter(overlay["context_profile_map"].items()))
+    assert sample_context_key.count("|") == 4
+    assert "move_pressure_profile_id" in sample_context_value
+    assert "think_time_profile_id" in sample_context_value
 
     con = sqlite3.connect(bundle_a / "data" / "behavioral_profile_set.sqlite")
     try:
         assert con.execute("SELECT COUNT(*) FROM context_profile_map").fetchone()[0] > 0
         assert con.execute("SELECT COUNT(*) FROM move_pressure_profiles").fetchone()[0] > 0
         assert con.execute("SELECT COUNT(*) FROM think_time_profiles").fetchone()[0] > 0
+    finally:
+        con.close()
+
+    con = sqlite3.connect(bundle_a / "data" / "corpus.sqlite")
+    try:
+        assert con.execute("SELECT COUNT(*) FROM positions").fetchone()[0] > 0
+        assert con.execute("SELECT COUNT(*) FROM moves").fetchone()[0] > 0
     finally:
         con.close()
 

@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -71,6 +72,28 @@ struct JsonManifest {
     std::map<std::string, std::string> string_fields;
     std::map<std::string, int> int_fields;
     std::map<std::string, bool> bool_fields;
+};
+
+struct MovePressureOverlayEntry {
+    std::string profile_id;
+    double pressure_sensitivity = 0.0;
+    double decisiveness = 0.0;
+    double move_diversity = 0.0;
+};
+
+struct ThinkTimeOverlayEntry {
+    std::string profile_id;
+    double base_time_scale = 0.0;
+    double spread = 0.0;
+    double short_mass = 0.0;
+    double deep_think_tail_mass = 0.0;
+    double timeout_tail_mass = 0.0;
+};
+
+struct ContextOverlayEntry {
+    std::string context_key;
+    std::string move_pressure_profile_id;
+    std::string think_time_profile_id;
 };
 
 static std::string read_file(const std::filesystem::path& path) {
@@ -171,6 +194,12 @@ static std::string join(const std::vector<std::string>& parts, const std::string
     return oss.str();
 }
 
+static std::string to_stable_json_number(double value) {
+    std::ostringstream oss;
+    oss << std::setprecision(17) << value;
+    return oss.str();
+}
+
 static std::string read_git_commit_if_available() {
     const auto head_path = std::filesystem::current_path() / ".git" / "HEAD";
     if (!std::filesystem::exists(head_path)) return "unknown";
@@ -231,6 +260,127 @@ static bool table_exists(sqlite3* db, const std::string& table) {
     std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> guard(stmt, sqlite3_finalize);
     sqlite3_bind_text(stmt, 1, table.c_str(), -1, SQLITE_TRANSIENT);
     return sqlite3_step(stmt) == SQLITE_ROW;
+}
+
+static std::vector<MovePressureOverlayEntry> read_move_pressure_overlay(sqlite3* db) {
+    std::vector<MovePressureOverlayEntry> rows;
+    auto cb = [](void* user, int argc, char** argv, char**) -> int {
+        auto* output = static_cast<std::vector<MovePressureOverlayEntry>*>(user);
+        if (argc < 4 || !argv[0] || !argv[1] || !argv[2] || !argv[3]) return 0;
+        MovePressureOverlayEntry row;
+        row.profile_id = argv[0];
+        row.pressure_sensitivity = std::stod(argv[1]);
+        row.decisiveness = std::stod(argv[2]);
+        row.move_diversity = std::stod(argv[3]);
+        output->push_back(row);
+        return 0;
+    };
+    char* errmsg = nullptr;
+    if (sqlite3_exec(db, "SELECT profile_id,pressure_sensitivity,decisiveness,move_diversity FROM move_pressure_profiles ORDER BY profile_id;", cb, &rows, &errmsg) != SQLITE_OK) {
+        std::string msg = errmsg ? errmsg : "failed reading move_pressure_profiles";
+        if (errmsg) sqlite3_free(errmsg);
+        throw std::runtime_error(msg);
+    }
+    if (errmsg) sqlite3_free(errmsg);
+    return rows;
+}
+
+static std::vector<ThinkTimeOverlayEntry> read_think_time_overlay(sqlite3* db) {
+    std::vector<ThinkTimeOverlayEntry> rows;
+    auto cb = [](void* user, int argc, char** argv, char**) -> int {
+        auto* output = static_cast<std::vector<ThinkTimeOverlayEntry>*>(user);
+        if (argc < 6 || !argv[0] || !argv[1] || !argv[2] || !argv[3] || !argv[4] || !argv[5]) return 0;
+        ThinkTimeOverlayEntry row;
+        row.profile_id = argv[0];
+        row.base_time_scale = std::stod(argv[1]);
+        row.spread = std::stod(argv[2]);
+        row.short_mass = std::stod(argv[3]);
+        row.deep_think_tail_mass = std::stod(argv[4]);
+        row.timeout_tail_mass = std::stod(argv[5]);
+        output->push_back(row);
+        return 0;
+    };
+    char* errmsg = nullptr;
+    if (sqlite3_exec(db, "SELECT profile_id,base_time_scale,spread,short_mass,deep_think_tail_mass,timeout_tail_mass FROM think_time_profiles ORDER BY profile_id;", cb, &rows, &errmsg) != SQLITE_OK) {
+        std::string msg = errmsg ? errmsg : "failed reading think_time_profiles";
+        if (errmsg) sqlite3_free(errmsg);
+        throw std::runtime_error(msg);
+    }
+    if (errmsg) sqlite3_free(errmsg);
+    return rows;
+}
+
+static std::vector<ContextOverlayEntry> read_context_overlay(sqlite3* db) {
+    std::vector<ContextOverlayEntry> rows;
+    auto cb = [](void* user, int argc, char** argv, char**) -> int {
+        auto* output = static_cast<std::vector<ContextOverlayEntry>*>(user);
+        if (argc < 7 || !argv[0] || !argv[1] || !argv[2] || !argv[3] || !argv[4] || !argv[5] || !argv[6]) return 0;
+        ContextOverlayEntry row;
+        const std::string time_control_id = argv[0];
+        const std::string mover_elo_band = argv[1];
+        const std::string clock_pressure_bucket = argv[2];
+        const std::string prev_opp_think_bucket = argv[3];
+        const std::string opening_ply_band = argv[4];
+        row.context_key = time_control_id + "|" + mover_elo_band + "|" + clock_pressure_bucket + "|" + prev_opp_think_bucket + "|" + opening_ply_band;
+        row.move_pressure_profile_id = argv[5];
+        row.think_time_profile_id = argv[6];
+        output->push_back(row);
+        return 0;
+    };
+    char* errmsg = nullptr;
+    if (sqlite3_exec(db, "SELECT time_control_id,mover_elo_band,clock_pressure_bucket,prev_opp_think_bucket,opening_ply_band,move_pressure_profile_id,think_time_profile_id FROM context_profile_map ORDER BY time_control_id,mover_elo_band,clock_pressure_bucket,prev_opp_think_bucket,opening_ply_band;", cb, &rows, &errmsg) != SQLITE_OK) {
+        std::string msg = errmsg ? errmsg : "failed reading context_profile_map";
+        if (errmsg) sqlite3_free(errmsg);
+        throw std::runtime_error(msg);
+    }
+    if (errmsg) sqlite3_free(errmsg);
+    return rows;
+}
+
+static void write_timing_overlay_json(const std::filesystem::path& profile_sqlite, const std::filesystem::path& out_json) {
+    sqlite3* db = nullptr;
+    if (sqlite3_open(profile_sqlite.string().c_str(), &db) != SQLITE_OK) {
+        throw std::runtime_error("failed to open profile sqlite for timing overlay export");
+    }
+    std::unique_ptr<sqlite3, decltype(&sqlite3_close)> guard(db, sqlite3_close);
+
+    const auto move_rows = read_move_pressure_overlay(db);
+    const auto think_rows = read_think_time_overlay(db);
+    const auto context_rows = read_context_overlay(db);
+
+    std::ofstream out(out_json, std::ios::binary);
+    out << "{\n";
+    out << "  \"context_contract_version\": \"" << kContextContractVersion << "\",\n";
+    out << "  \"timing_overlay_policy_version\": \"" << kOverlayPolicyVersion << "\",\n";
+    out << "  \"move_pressure_profiles\": {\n";
+    for (std::size_t i = 0; i < move_rows.size(); ++i) {
+        const auto& row = move_rows[i];
+        out << "    \"" << json_escape(row.profile_id) << "\": {\"pressure_sensitivity\": " << to_stable_json_number(row.pressure_sensitivity)
+            << ", \"decisiveness\": " << to_stable_json_number(row.decisiveness)
+            << ", \"move_diversity\": " << to_stable_json_number(row.move_diversity) << "}"
+            << (i + 1 < move_rows.size() ? "," : "") << "\n";
+    }
+    out << "  },\n";
+    out << "  \"think_time_profiles\": {\n";
+    for (std::size_t i = 0; i < think_rows.size(); ++i) {
+        const auto& row = think_rows[i];
+        out << "    \"" << json_escape(row.profile_id) << "\": {\"base_time_scale\": " << to_stable_json_number(row.base_time_scale)
+            << ", \"spread\": " << to_stable_json_number(row.spread)
+            << ", \"short_mass\": " << to_stable_json_number(row.short_mass)
+            << ", \"deep_think_tail_mass\": " << to_stable_json_number(row.deep_think_tail_mass)
+            << ", \"timeout_tail_mass\": " << to_stable_json_number(row.timeout_tail_mass) << "}"
+            << (i + 1 < think_rows.size() ? "," : "") << "\n";
+    }
+    out << "  },\n";
+    out << "  \"context_profile_map\": {\n";
+    for (std::size_t i = 0; i < context_rows.size(); ++i) {
+        const auto& row = context_rows[i];
+        out << "    \"" << json_escape(row.context_key) << "\": {\"move_pressure_profile_id\": \"" << json_escape(row.move_pressure_profile_id)
+            << "\", \"think_time_profile_id\": \"" << json_escape(row.think_time_profile_id) << "\"}"
+            << (i + 1 < context_rows.size() ? "," : "") << "\n";
+    }
+    out << "  }\n";
+    out << "}\n";
 }
 
 static std::filesystem::path resolve_corpus_sqlite(const std::filesystem::path& input, CorpusInfo& info) {
@@ -485,10 +635,14 @@ TimingConditionedBundleCounters build_timing_conditioned_corpus_bundle(const Tim
         ? (std::string("timing_conditioned_") + make_hex(fnv1a64(corpus.artifact_id + "|" + profile.artifact_id + "|" + join(options.time_controls, ",") + "|" + join(options.elo_bands, ",") + "|" + options.prototype_label)))
         : options.artifact_id_override;
 
-    const auto corpus_copy = output_root / "data" / "exact_corpus.sqlite";
+    const auto corpus_copy = output_root / "data" / "corpus.sqlite";
+    const auto corpus_alias_copy = output_root / "data" / "exact_corpus.sqlite";
     const auto profile_copy = output_root / "data" / "behavioral_profile_set.sqlite";
+    const auto timing_overlay_json = output_root / "data" / "timing_overlay.json";
     std::filesystem::copy_file(corpus.source_sqlite_path, corpus_copy, std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file(corpus.source_sqlite_path, corpus_alias_copy, std::filesystem::copy_options::overwrite_existing);
     std::filesystem::copy_file(profile.source_sqlite_path, profile_copy, std::filesystem::copy_options::overwrite_existing);
+    write_timing_overlay_json(profile_copy, timing_overlay_json);
 
     if (options.embed_fit_diagnostics) {
         sqlite3* src = nullptr;
@@ -523,6 +677,15 @@ TimingConditionedBundleCounters build_timing_conditioned_corpus_bundle(const Tim
     manifest << "  \"position_key_format_description\": \"" << json_escape(corpus.position_key_format) << "\",\n";
     manifest << "  \"move_representation_description\": \"" << json_escape(corpus.move_key_format) << "\",\n";
     manifest << "  \"payload_encoding_family\": \"" << json_escape(corpus.payload_encoding_family) << "\",\n";
+    manifest << "  \"build_status\": \"aggregation_complete\",\n";
+    manifest << "  \"payload_format\": \"sqlite\",\n";
+    manifest << "  \"position_key_format\": \"fen_normalized\",\n";
+    manifest << "  \"move_key_format\": \"uci\",\n";
+    manifest << "  \"retained_ply_depth\": " << corpus.retained_opening_ply << ",\n";
+    manifest << "  \"sqlite_corpus_file\": \"data/corpus.sqlite\",\n";
+    manifest << "  \"corpus_sqlite_file\": \"data/corpus.sqlite\",\n";
+    manifest << "  \"payload_file\": \"data/corpus.sqlite\",\n";
+    manifest << "  \"payload_status\": \"raw_aggregate_counts_present_non_final_trainer_payload\",\n";
     manifest << "  \"raw_counts_preserved\": " << (corpus.raw_counts_preserved ? "true" : "false") << ",\n";
     manifest << "  \"timing_overlay_prototype_only\": " << (options.prototype_label.empty() ? "false" : "true") << ",\n";
     manifest << "  \"timing_overlay_policy_version\": \"" << kOverlayPolicyVersion << "\",\n";
@@ -532,7 +695,8 @@ TimingConditionedBundleCounters build_timing_conditioned_corpus_bundle(const Tim
     manifest << "  \"time_controls_filter\": \"" << json_escape(join(options.time_controls, ",")) << "\",\n";
     manifest << "  \"elo_bands_filter\": \"" << json_escape(join(options.elo_bands, ",")) << "\",\n";
     manifest << "  \"prototype_label\": \"" << json_escape(options.prototype_label) << "\",\n";
-    manifest << "  \"payload_files\": [\"data/exact_corpus.sqlite\",\"data/behavioral_profile_set.sqlite\"],\n";
+    manifest << "  \"timing_overlay_file\": \"data/timing_overlay.json\",\n";
+    manifest << "  \"payload_files\": [\"data/corpus.sqlite\",\"data/exact_corpus.sqlite\",\"data/behavioral_profile_set.sqlite\",\"data/timing_overlay.json\"],\n";
     manifest << "  \"compatibility_warnings\": [";
     for (std::size_t i = 0; i < compatibility.warnings.size(); ++i) {
         if (i > 0) manifest << ',';
