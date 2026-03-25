@@ -96,3 +96,65 @@ Indexes are emitted for future profile-fitting workflows by mover ELO band, time
 - `--workers` is reserved and currently executes in deterministic single-worker mode.
 - If built without zstd support, `.pgn.zst` is rejected explicitly at runtime with a rebuild hint.
 - If built with zstd support, `.pgn.zst` requires valid zstd-frame input for decompression; `.zst` files without zstd magic are treated as plain text for fixture compatibility.
+
+## Behavioral Profile Builder
+
+This repo now also includes a separate standalone executable: `build-behavioral-profiles`.
+It consumes one or more Behavioral Training Extract SQLite artifacts and emits a deterministic,
+inspectable, versioned SQLite artifact called a **Behavioral Profile Set**.
+
+This stage fits and merges reusable timing-behavior profiles for two separate families:
+
+- **Move Pressure Profiles**: compact parameter packs that model multiplicative move-weight distortion under clock pressure.
+- **Think-Time Profiles**: compact parameter packs that model think-time generation distributions after move choice.
+
+This stage intentionally **does not** integrate with trainer runtime yet and does **not** replace
+exact move-frequency corpus semantics. Timing remains a separable overlay layer.
+
+### CLI usage
+
+```bash
+build-behavioral-profiles \
+  --input-extract /tmp/extract_2024_01.sqlite \
+  --input-extract /tmp/extract_2024_02.sqlite \
+  --output /tmp/behavioral_profile_set.sqlite \
+  --time-controls 300+2 \
+  --elo-bands 1200-1799 \
+  --month-window 2024-01:2024-02 \
+  --min-support 25 \
+  --merge-threshold 0.12 \
+  --overwrite
+```
+
+Required:
+- `--input-extract` (repeatable)
+- `--output`
+
+Supported options:
+- `--time-controls`, `--elo-bands`, `--month-window`, `--max-examples`, `--overwrite`, `--log-every`, `--seed-context-limit`, `--min-support`, `--merge-threshold`, `--strict`, `--emit-fit-diagnostics`, `--emit-invalid-report`
+
+### Behavioral Profile Set schema summary
+
+Tables:
+- `profile_manifest`: schema, builder/version, method/merge metadata, threshold, deterministic toggles.
+- `profile_build_inputs`: input extract identities and accepted training-row counts.
+- `move_pressure_profiles`: reusable move-pressure profile parameters + fit/merge provenance.
+- `think_time_profiles`: reusable think-time profile parameters + fit/merge provenance.
+- `context_profile_map`: deterministic mapping from context family keys to profile IDs.
+- `profile_merge_history`: deterministic merge provenance records.
+- `fit_diagnostics` (optional): per-context fit diagnostics.
+- `invalid_rows` (optional): strict/validation skip reasons.
+
+### Determinism guarantees
+
+- Input extract paths are sorted before loading.
+- Input rows are read in stable `(source_file, game_id, game_ply_index)` order.
+- Context family ordering is stable and deterministic.
+- Merge order is deterministic and threshold-driven.
+- Profile IDs are assigned in deterministic creation order.
+
+### Known limitations
+
+- Initial profile math is intentionally simple (first-pass compact parametric fit).
+- Similarity/merge currently uses deterministic L1 parameter distance; richer metrics can be added in later lanes.
+- Runtime sampling integration is out of scope for this builder-only lane.
