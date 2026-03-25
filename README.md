@@ -190,9 +190,20 @@ Supported options:
 
 - `manifest.json`: stable audit surface that records exact corpus identity, profile-set identity,
   compatibility warnings, context contract version, timing overlay policy version, deterministic
-  timestamp metadata, and payload references.
-- `data/exact_corpus.sqlite`: copied exact corpus payload truth.
-- `data/behavioral_profile_set.sqlite`: copied timing overlay payload truth.
+  timestamp metadata, trainer-compatibility legacy fields, and payload references.
+- `data/corpus.sqlite`: trainer-compatible exact corpus payload path (primary runtime path).
+- `data/exact_corpus.sqlite`: optional audit-friendly alias copy of exact corpus payload.
+- `data/behavioral_profile_set.sqlite`: authoritative Behavioral Profile Set SQLite audit artifact.
+- `data/timing_overlay.json`: trainer-readable timing overlay JSON export derived from
+  `behavioral_profile_set.sqlite` with:
+  `context_contract_version`, `timing_overlay_policy_version`, `move_pressure_profiles`,
+  `think_time_profiles`, and `context_profile_map`.
+
+For current trainer compatibility, `manifest.json` now emits legacy aggregate-bundle fields
+(`build_status`, `payload_format`, `position_key_format`, `move_key_format`,
+`sqlite_corpus_file`, `corpus_sqlite_file`, `payload_file`, and `payload_status`) and points all
+trainer payload pointers at `data/corpus.sqlite`. It also emits `timing_overlay_file` set to
+`data/timing_overlay.json`.
 
 ### Compatibility checks
 
@@ -210,6 +221,7 @@ Given the same exact corpus input, profile-set input, and emitter config, output
 - deterministic artifact-id derivation (unless overridden),
 - stable payload copy names,
 - stable manifest field ordering,
+- stable timing-overlay JSON ordering (`profile_id` / context key sorted export),
 - deterministic build timestamp marker (`"deterministic"`).
 
 ### Known limitations
