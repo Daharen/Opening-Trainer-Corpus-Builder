@@ -158,3 +158,64 @@ Tables:
 - Initial profile math is intentionally simple (first-pass compact parametric fit).
 - Similarity/merge currently uses deterministic L1 parameter distance; richer metrics can be added in later lanes.
 - Runtime sampling integration is out of scope for this builder-only lane.
+
+
+## Timing-Conditioned Corpus Bundle Emitter
+
+This repo now includes a standalone executable: `build-timing-conditioned-corpus-bundle`.
+It joins an existing exact corpus artifact (bundle directory or SQLite payload) with an existing
+Behavioral Profile Set SQLite artifact and emits a deterministic, inspectable **timing-conditioned
+corpus bundle**.
+
+This stage is intentionally an emitter/assembler only. It does **not** parse raw PGN, rebuild the
+exact corpus, retrain behavioral profiles, or implement runtime sampling logic.
+
+### CLI usage
+
+```bash
+build-timing-conditioned-corpus-bundle   --input-corpus-bundle /tmp/exact_corpus_bundle   --input-profile-set /tmp/behavioral_profile_set.sqlite   --output /tmp/timing_conditioned_bundle   --artifact-id timing_conditioned_2024q1   --prototype-label lane_test   --time-controls 300+2   --elo-bands 1200-1799   --overwrite
+```
+
+Required:
+- `--input-corpus-bundle`
+- `--input-profile-set`
+- `--output`
+
+Supported options:
+- `--overwrite`, `--artifact-id`, `--prototype-label`, `--time-controls`, `--elo-bands`,
+  `--log-every`, `--strict-compatibility`, `--allow-prototype-mismatch`,
+  `--embed-fit-diagnostics`, `--emit-progress-log`, `--emit-status-json`
+
+### Output bundle contract (v1)
+
+- `manifest.json`: stable audit surface that records exact corpus identity, profile-set identity,
+  compatibility warnings, context contract version, timing overlay policy version, deterministic
+  timestamp metadata, and payload references.
+- `data/exact_corpus.sqlite`: copied exact corpus payload truth.
+- `data/behavioral_profile_set.sqlite`: copied timing overlay payload truth.
+
+### Compatibility checks
+
+The emitter validates compatibility and fails by default when runtime interpretation would become
+ambiguous. Current checks include position/move key expectations, retained opening depth floor,
+profile payload presence, requested time-control presence in `context_profile_map`, and ELO filter
+overlap against corpus rating bounds.
+
+`--allow-prototype-mismatch` permits mismatches only when `--prototype-label` is present, and the
+manifest records surfaced warnings/errors for auditability.
+
+### Determinism notes
+
+Given the same exact corpus input, profile-set input, and emitter config, output is deterministic:
+- deterministic artifact-id derivation (unless overridden),
+- stable payload copy names,
+- stable manifest field ordering,
+- deterministic build timestamp marker (`"deterministic"`).
+
+### Known limitations
+
+- First implementation is conservative and redundant: payloads are copied side-by-side rather than
+  deeply fused.
+- Compatibility checks are intentionally strict around context scope and intentionally simple around
+  policy-version semantics.
+- Runtime-side sampling/overlay application remains out of scope for this builder repo.

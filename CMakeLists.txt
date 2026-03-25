@@ -115,6 +115,26 @@ endif()
 
 target_link_libraries(build-behavioral-profiles PRIVATE ${OTCB_SQLITE_TARGET})
 
+
+add_executable(build-timing-conditioned-corpus-bundle
+    src/build_timing_conditioned_corpus_bundle_main.cpp
+    src/timing_conditioned_bundle_builder.cpp
+    src/rating_filter.cpp
+)
+
+target_include_directories(build-timing-conditioned-corpus-bundle
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+if(MSVC)
+    target_compile_options(build-timing-conditioned-corpus-bundle PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(build-timing-conditioned-corpus-bundle PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+target_link_libraries(build-timing-conditioned-corpus-bundle PRIVATE ${OTCB_SQLITE_TARGET})
+
 if(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD)
     find_package(zstd QUIET CONFIG)
     if(TARGET zstd::libzstd_shared)
@@ -156,6 +176,16 @@ if(BUILD_TESTING)
                 $<TARGET_FILE:build-behavioral-training-extract> ${CMAKE_CURRENT_SOURCE_DIR}
                 $<BOOL:${OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD}>
     )
+    add_test(
+        NAME timing_conditioned_bundle_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_timing_conditioned_bundle.py
+                $<TARGET_FILE:opening-trainer-corpus-builder>
+                $<TARGET_FILE:build-behavioral-training-extract>
+                $<TARGET_FILE:build-behavioral-profiles>
+                $<TARGET_FILE:build-timing-conditioned-corpus-bundle>
+                ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
     add_test(
         NAME behavioral_profile_validation
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_behavioral_profiles.py
