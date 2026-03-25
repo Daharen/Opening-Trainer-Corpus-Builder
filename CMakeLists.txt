@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(OTCB_USE_SYSTEM_SQLITE "Use system-provided SQLite instead of the repo-local default path." OFF)
+option(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD "Enable .pgn.zst input support for build-behavioral-training-extract." OFF)
 
 add_executable(opening-trainer-corpus-builder
     src/main.cpp
@@ -48,10 +49,8 @@ else()
         target_compile_options(otcb_sqlite_vendor PRIVATE -w)
     endif()
 
-    # The default repo-local path exposes SQLite headers from third_party/sqlite.
-    # Link libc sqlite symbols explicitly for environments where sqlite is packaged
-    # as a system library.
-    target_link_libraries(otcb_sqlite_vendor PUBLIC sqlite3)
+    find_package(SQLite3 REQUIRED)
+    target_link_libraries(otcb_sqlite_vendor PUBLIC SQLite::SQLite3)
     set(OTCB_SQLITE_TARGET otcb_sqlite_vendor)
 endif()
 
@@ -89,7 +88,29 @@ else()
     target_compile_options(build-behavioral-training-extract PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-target_link_libraries(build-behavioral-training-extract PRIVATE ${OTCB_SQLITE_TARGET} zstd)
+target_link_libraries(build-behavioral-training-extract PRIVATE ${OTCB_SQLITE_TARGET})
+
+if(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD)
+    find_package(zstd QUIET CONFIG)
+    if(TARGET zstd::libzstd_shared)
+        set(OTCB_ZSTD_TARGET zstd::libzstd_shared)
+    elseif(TARGET zstd::libzstd_static)
+        set(OTCB_ZSTD_TARGET zstd::libzstd_static)
+    elseif(TARGET zstd::libzstd)
+        set(OTCB_ZSTD_TARGET zstd::libzstd)
+    else()
+        find_path(ZSTD_INCLUDE_DIR NAMES zstd.h REQUIRED)
+        find_library(ZSTD_LIBRARY NAMES zstd libzstd REQUIRED)
+        add_library(otcb_zstd_unknown INTERFACE)
+        target_include_directories(otcb_zstd_unknown INTERFACE ${ZSTD_INCLUDE_DIR})
+        target_link_libraries(otcb_zstd_unknown INTERFACE ${ZSTD_LIBRARY})
+        set(OTCB_ZSTD_TARGET otcb_zstd_unknown)
+    endif()
+    target_compile_definitions(build-behavioral-training-extract PRIVATE OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD=1)
+    target_link_libraries(build-behavioral-training-extract PRIVATE ${OTCB_ZSTD_TARGET})
+else()
+    target_compile_definitions(build-behavioral-training-extract PRIVATE OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD=0)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)
@@ -108,5 +129,6 @@ if(BUILD_TESTING)
         NAME behavioral_extract_validation
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_behavioral_extract.py
                 $<TARGET_FILE:build-behavioral-training-extract> ${CMAKE_CURRENT_SOURCE_DIR}
+                $<BOOL:${OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD}>
     )
 endif()

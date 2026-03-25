@@ -35,7 +35,7 @@ already-installed SQLite package, but ordinary local builds should not require c
 ## Behavioral Training Extract Builder
 
 This repo now includes a separate standalone executable: `build-behavioral-training-extract`.
-It ingests timed PGN sources (`.pgn` and `.pgn.zst` when the file has a valid zstd frame), replays SAN deterministically, extracts per-move timing events, and writes a deterministic intermediate SQLite artifact called **Behavioral Training Extract**.
+It ingests timed PGN sources (`.pgn` always; `.pgn.zst` only when built with zstd enabled), replays SAN deterministically, extracts per-move timing events, and writes a deterministic intermediate SQLite artifact called **Behavioral Training Extract**.
 
 This stage is intentionally **not** profile fitting, profile clustering/merging, runtime corpus mutation, or trainer integration.
 
@@ -43,6 +43,17 @@ This stage is intentionally **not** profile fitting, profile clustering/merging,
 
 ```bash
 build-behavioral-training-extract   --input /path/month_2024_01.pgn.zst   --output /tmp/behavioral_extract.sqlite   --time-controls 300+0   --time-controls 300+2   --elo-bands 1400-1599   --month 2024-01   --overwrite
+```
+
+### Input support matrix
+
+- Plain `.pgn` input is always supported.
+- `.pgn.zst` input is build-configuration dependent via CMake option `OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD`.
+- Default local build is safe/off: `-DOTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD=OFF`.
+- To enable zstd input support in environments with repo-controlled zstd availability:
+
+```bash
+cmake -S . -B build -DOTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD=ON
 ```
 
 Required:
@@ -73,4 +84,5 @@ Indexes are emitted for future profile-fitting workflows by mover ELO band, time
 ### Known limitations
 
 - `--workers` is reserved and currently executes in deterministic single-worker mode.
-- `.pgn.zst` requires valid zstd-frame input for decompression; `.zst` files without zstd magic are treated as plain text for fixture compatibility.
+- If built without zstd support, `.pgn.zst` is rejected explicitly at runtime with a rebuild hint.
+- If built with zstd support, `.pgn.zst` requires valid zstd-frame input for decompression; `.zst` files without zstd magic are treated as plain text for fixture compatibility.
