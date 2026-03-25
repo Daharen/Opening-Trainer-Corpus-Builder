@@ -28,6 +28,7 @@
 #include "otcb/chess_types.hpp"
 #include "otcb/position_key.hpp"
 #include "otcb/san_replay.hpp"
+#include "otcb/rating_filter.hpp"
 #include <sqlite3.h>
 
 namespace otcb {
@@ -384,6 +385,12 @@ BehavioralExtractOptions parse_or_throw(int argc, char** argv) {
         if (arg == "--output") { opts.output_path = need(arg); continue; }
         if (arg == "--time-controls") { opts.time_controls.push_back(need(arg)); continue; }
         if (arg == "--elo-bands") { opts.elo_bands.push_back(need(arg)); continue; }
+        if (arg == "--rating-policy") {
+            const auto parsed = parse_rating_policy(need(arg));
+            if (!parsed.has_value()) throw std::runtime_error("Invalid value for --rating-policy. See --help for supported values.");
+            opts.rating_policy = *parsed;
+            continue;
+        }
         if (arg == "--month") { opts.month_override = need(arg); continue; }
         if (arg == "--max-games") { opts.max_games = std::stoi(need(arg)); continue; }
         if (arg == "--resume") { opts.resume = true; continue; }
@@ -398,6 +405,11 @@ BehavioralExtractOptions parse_or_throw(int argc, char** argv) {
     if (opts.input_paths.empty()) throw std::runtime_error("--input is required at least once");
     if (opts.output_path.empty()) throw std::runtime_error("--output is required");
     if (opts.resume && opts.overwrite) throw std::runtime_error("--resume and --overwrite are mutually exclusive");
+    for (const std::string& band : opts.elo_bands) {
+        if (!parse_elo_range(band).has_value()) {
+            throw std::runtime_error("Invalid --elo-bands range '" + band + "'. Expected inclusive integer interval: lo-hi with lo <= hi.");
+        }
+    }
     return opts;
 }
 
@@ -414,7 +426,8 @@ void print_behavioral_extract_usage(const std::string& program_name) {
         << "  --input <path>                        Input source path (.pgn always supported; .pgn.zst requires zstd-enabled build).\n"
         << "  --output <path>                       Output SQLite path.\n"
         << "  --time-controls <initial+increment>   Optional include filter; repeatable.\n"
-        << "  --elo-bands <lo-hi>                   Optional include filter; repeatable (200-point default band policy).\n"
+        << "  --elo-bands <lo-hi>                   Optional include filter; repeatable inclusive numeric rating ranges.\n"
+        << "  --rating-policy <value>               Rating membership policy for --elo-bands (default: both_in_band).\n"
         << "  --month <YYYY-MM>                     Optional source month override.\n"
         << "  --max-games <n>                       Optional cap for debugging.\n"
         << "  --resume                              Reuse existing artifact deterministically.\n"
@@ -423,7 +436,8 @@ void print_behavioral_extract_usage(const std::string& program_name) {
         << "  --log-every <n>                       Progress cadence.\n"
         << "  --emit-invalid-report                 Persist invalid_rows entries.\n"
         << "  --source-label <label>                Optional source label persisted in manifest summary.\n"
-        << "  --strict                              Fail hard on malformed timed records.\n";
+        << "  --strict                              Fail hard on malformed timed records.\n"
+        << rating_policy_help() << "\n";
 #if OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD
     std::cout << "Build feature: zstd input support enabled (.pgn.zst accepted when zstd magic is present).\n";
 #else
@@ -479,7 +493,15 @@ BehavioralExtractCounters build_behavioral_training_extract(const BehavioralExtr
     sqlite3_prepare_v2(db, "INSERT INTO invalid_rows(source_file,game_id,game_ply_index,reason,detail) VALUES(?,?,?,?,?);", -1, &invalid_stmt, nullptr);
 
     std::set<std::string> allowed_tc(options.time_controls.begin(), options.time_controls.end());
-    std::set<std::string> allowed_bands(options.elo_bands.begin(), options.elo_bands.end());
+    std::vector<EloRange> allowed_elo_ranges;
+    allowed_elo_ranges.reserve(options.elo_bands.size());
+    for (const std::string& spec : options.elo_bands) {
+        const auto parsed = parse_elo_range(spec);
+        if (!parsed.has_value()) {
+            throw std::runtime_error("Invalid --elo-bands range encountered after parse: " + spec);
+        }
+        allowed_elo_ranges.push_back(*parsed);
+    }
 
     for (const auto& input : inputs) {
         ++counters.files_processed;
@@ -556,6 +578,12 @@ BehavioralExtractCounters build_behavioral_training_extract(const BehavioralExtr
                 current.source_file = input.generic_string();
                 return;
             }
+            if (!rating_policy_match(*white_elo, *black_elo, options.rating_policy, allowed_elo_ranges)) {
+                reject_game("filtered_elo_range");
+                current = ParsedGame{};
+                current.source_file = input.generic_string();
+                return;
+            }
 
             const auto timed = tokenize_timed_movetext(current.movetext);
             ChessBoard board;
@@ -592,11 +620,6 @@ BehavioralExtractCounters build_behavioral_training_extract(const BehavioralExtr
 
                 const int mover_elo = white_to_move ? *white_elo : *black_elo;
                 const std::string elo_band = normalize_elo_band(mover_elo);
-                if (!allowed_bands.empty() && allowed_bands.count(elo_band) == 0) {
-                    board.apply_move(*resolved.move);
-                    if (white_to_move) white_clock = after; else black_clock = after;
-                    continue;
-                }
 
                 const std::string side = white_to_move ? "white" : "black";
                 const std::string position_key = make_position_key(board, PositionKeyFormat::FenNormalized);

@@ -30,6 +30,7 @@ add_executable(opening-trainer-corpus-builder
     src/position_key.cpp
     src/aggregation.cpp
     src/sqlite_writer.cpp
+    src/rating_filter.cpp
 )
 
 if(OTCB_USE_SYSTEM_SQLITE)
@@ -73,10 +74,12 @@ target_link_libraries(opening-trainer-corpus-builder PRIVATE ${OTCB_SQLITE_TARGE
 add_executable(build-behavioral-training-extract
     src/build_behavioral_training_extract_main.cpp
     src/behavioral_extract.cpp
+    src/config.cpp
     src/chess_types.cpp
     src/chess_board.cpp
     src/san_replay.cpp
     src/position_key.cpp
+    src/rating_filter.cpp
 )
 
 target_include_directories(build-behavioral-training-extract

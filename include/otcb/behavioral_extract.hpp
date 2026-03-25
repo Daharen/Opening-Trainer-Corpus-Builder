@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "otcb/config.hpp"
+
 namespace otcb {
 
 struct BehavioralExtractOptions {
@@ -12,6 +14,7 @@ struct BehavioralExtractOptions {
     std::filesystem::path output_path;
     std::vector<std::string> time_controls;
     std::vector<std::string> elo_bands;
+    RatingPolicy rating_policy = RatingPolicy::BothInBand;
     std::optional<std::string> month_override;
     int max_games = 0;
     bool resume = false;

@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "otcb/progress.hpp"
+#include "otcb/rating_filter.hpp"
 
 namespace otcb {
 namespace {
@@ -111,9 +112,6 @@ void apply_tag(ParsedGameHeaders& headers, const ParsedTagLine& tag) {
     }
 }
 
-bool in_band(const int value, const int min_rating, const int max_rating) {
-    return value >= min_rating && value <= max_rating;
-}
 
 HeaderScanClassification classify_headers(const BuildConfig& config, const ParsedGameHeaders& headers) {
     if (!headers.white_elo_raw.has_value()) {
@@ -131,21 +129,8 @@ HeaderScanClassification classify_headers(const BuildConfig& config, const Parse
 
     const int white = *headers.white_elo;
     const int black = *headers.black_elo;
-    bool accepted = false;
-    switch (*config.rating_policy) {
-        case RatingPolicy::BothInBand:
-            accepted = in_band(white, config.min_rating, config.max_rating) && in_band(black, config.min_rating, config.max_rating);
-            break;
-        case RatingPolicy::AverageInBand:
-            accepted = in_band((white + black) / 2, config.min_rating, config.max_rating);
-            break;
-        case RatingPolicy::WhiteInBand:
-            accepted = in_band(white, config.min_rating, config.max_rating);
-            break;
-        case RatingPolicy::BlackInBand:
-            accepted = in_band(black, config.min_rating, config.max_rating);
-            break;
-    }
+    const std::vector<EloRange> range{{config.min_rating, config.max_rating}};
+    const bool accepted = rating_policy_match(white, black, *config.rating_policy, range);
     return accepted ? HeaderScanClassification::Accepted : HeaderScanClassification::RejectedPolicyMismatch;
 }
 
