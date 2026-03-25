@@ -30,6 +30,11 @@ def digest_rows(rows):
     return h.hexdigest()
 
 
+def accepted_by_index(db_path):
+    rows = fetchall(db_path, "SELECT source_game_index, accepted, rejection_reason FROM games ORDER BY source_game_index")
+    return {idx: (accepted, reason) for (idx, accepted, reason) in rows}
+
+
 def main():
     exe = Path(sys.argv[1])
     repo = Path(sys.argv[2])
@@ -110,6 +115,67 @@ def main():
         assert cp.returncode != 0
         combined = f"{cp.stdout}\n{cp.stderr}"
         assert "does not include zstd input support" in combined
+
+
+    range_fixture = repo / "tests" / "fixtures_timed_elo_ranges.pgn"
+
+    def run_range_case(name, extra_args):
+        out_db = work / f"{name}.sqlite"
+        run([
+            str(exe),
+            "--input", str(range_fixture),
+            "--output", str(out_db),
+            "--overwrite",
+            "--time-controls", "300+2",
+            "--elo-bands", "1000-1200",
+            *extra_args,
+        ])
+        return out_db
+
+    both_db = run_range_case("elo_both", ["--rating-policy", "both_in_band"])
+    both = accepted_by_index(both_db)
+    assert both[1][0] == 0 and both[1][1] == "filtered_elo_range"
+    assert both[2][0] == 0 and both[2][1] == "filtered_elo_range"
+    assert both[3][0] == 1 and both[3][1] is None
+
+    white_db = run_range_case("elo_white", ["--rating-policy", "white_in_band"])
+    white = accepted_by_index(white_db)
+    assert white[1][0] == 1
+    assert white[2][0] == 0 and white[2][1] == "filtered_elo_range"
+    assert white[3][0] == 1
+
+    black_db = run_range_case("elo_black", ["--rating-policy", "black_in_band"])
+    black = accepted_by_index(black_db)
+    assert black[1][0] == 0 and black[1][1] == "filtered_elo_range"
+    assert black[2][0] == 1
+    assert black[3][0] == 1
+
+    union_db = work / "elo_union.sqlite"
+    run([
+        str(exe),
+        "--input", str(range_fixture),
+        "--output", str(union_db),
+        "--overwrite",
+        "--time-controls", "300+2",
+        "--rating-policy", "both_in_band",
+        "--elo-bands", "1000-1200",
+        "--elo-bands", "850-950",
+    ])
+    union_rows = accepted_by_index(union_db)
+    assert union_rows[1][0] == 1
+    assert union_rows[2][0] == 1
+    assert union_rows[3][0] == 1
+
+    cp = subprocess.run([
+        str(exe),
+        "--input", str(range_fixture),
+        "--output", str(work / "elo_bad.sqlite"),
+        "--overwrite",
+        "--time-controls", "300+2",
+        "--elo-bands", "1000-",
+    ], text=True, capture_output=True)
+    assert cp.returncode != 0
+    assert "Invalid --elo-bands range" in (cp.stdout + cp.stderr)
 
     print("behavioral_extract_validation_ok")
 

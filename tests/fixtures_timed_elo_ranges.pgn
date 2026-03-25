@@ -1,0 +1,38 @@
+[Event "WhiteOnlyInRange"]
+[Site "Local"]
+[Date "2024.01.20"]
+[Round "1"]
+[White "W1"]
+[Black "B1"]
+[Result "1-0"]
+[WhiteElo "1100"]
+[BlackElo "900"]
+[TimeControl "300+2"]
+
+1. e4 {[%clk 0:05:00]} e5 {[%clk 0:05:00]} 2. Nf3 {[%clk 0:04:58]} Nc6 {[%clk 0:04:59]} 1-0
+
+[Event "BlackOnlyInRange"]
+[Site "Local"]
+[Date "2024.01.20"]
+[Round "1"]
+[White "W2"]
+[Black "B2"]
+[Result "0-1"]
+[WhiteElo "900"]
+[BlackElo "1100"]
+[TimeControl "300+2"]
+
+1. d4 {[%clk 0:05:00]} d5 {[%clk 0:05:00]} 2. c4 {[%clk 0:04:58]} e6 {[%clk 0:04:59]} 0-1
+
+[Event "BothInRange"]
+[Site "Local"]
+[Date "2024.01.20"]
+[Round "1"]
+[White "W3"]
+[Black "B3"]
+[Result "1/2-1/2"]
+[WhiteElo "1125"]
+[BlackElo "1180"]
+[TimeControl "300+2"]
+
+1. c4 {[%clk 0:05:00]} e5 {[%clk 0:05:00]} 2. Nc3 {[%clk 0:04:58]} Nf6 {[%clk 0:04:59]} 1/2-1/2

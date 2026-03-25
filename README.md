@@ -43,7 +43,7 @@ This stage is intentionally **not** profile fitting, profile clustering/merging,
 ### CLI usage
 
 ```bash
-build-behavioral-training-extract   --input /path/month_2024_01.pgn.zst   --output /tmp/behavioral_extract.sqlite   --time-controls 300+0   --time-controls 300+2   --elo-bands 1400-1599   --month 2024-01   --overwrite
+build-behavioral-training-extract   --input /path/month_2024_01.pgn.zst   --output /tmp/behavioral_extract.sqlite   --time-controls 300+0   --time-controls 300+2   --elo-bands 1400-1600   --elo-bands 475-525   --rating-policy both_in_band   --month 2024-01   --overwrite
 ```
 
 ### Input support matrix
@@ -62,7 +62,16 @@ Required:
 - `--output`
 
 Supported options:
-- `--time-controls`, `--elo-bands`, `--month`, `--max-games`, `--resume`, `--overwrite`, `--workers`, `--log-every`, `--emit-invalid-report`, `--source-label`, `--strict`
+- `--time-controls`, `--elo-bands`, `--rating-policy`, `--month`, `--max-games`, `--resume`, `--overwrite`, `--workers`, `--log-every`, `--emit-invalid-report`, `--source-label`, `--strict`
+
+`--elo-bands` accepts inclusive numeric intervals (`lo-hi`) and can be repeated; repeated ranges are treated as a union.
+`--rating-policy` controls side membership semantics for those ranges:
+- `both_in_band`: White and Black ratings must both fall inside at least one allowed interval.
+- `white_in_band`: only White must fall in-range.
+- `black_in_band`: only Black must fall in-range.
+- `average_in_band`: average of White/Black must fall in-range.
+
+Derived per-move `mover_elo_band` (200-point buckets) is still emitted for downstream modeling, but it is no longer the CLI filter contract.
 
 ### Behavioral Training Extract schema summary
 
