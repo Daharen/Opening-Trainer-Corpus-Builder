@@ -1,0 +1,38 @@
+[Event "TimedFixture"]
+[Site "Local"]
+[Date "2024.01.15"]
+[Round "1"]
+[White "Alice"]
+[Black "Bob"]
+[Result "1-0"]
+[WhiteElo "1520"]
+[BlackElo "1480"]
+[TimeControl "300+2"]
+
+1. e4 {[%clk 0:05:00]} e5 {[%clk 0:05:00]} 2. Nf3 {[%clk 0:04:58]} Nc6 {[%clk 0:04:59]} 3. Bb5 {[%clk 0:04:55]} a6 {[%clk 0:04:57]} 1-0
+
+[Event "MissingClock"]
+[Site "Local"]
+[Date "2024.01.15"]
+[Round "1"]
+[White "Carol"]
+[Black "Dan"]
+[Result "0-1"]
+[WhiteElo "1600"]
+[BlackElo "1650"]
+[TimeControl "300+0"]
+
+1. d4 d5 {[%clk 0:05:00]} 2. c4 {[%clk 0:04:58]} e6 {[%clk 0:04:57]} 0-1
+
+[Event "InvalidTC"]
+[Site "Local"]
+[Date "2024.01.15"]
+[Round "1"]
+[White "Eve"]
+[Black "Frank"]
+[Result "1/2-1/2"]
+[WhiteElo "1700"]
+[BlackElo "1710"]
+[TimeControl "bad"]
+
+1. e4 {[%clk 0:05:00]} e5 {[%clk 0:05:00]} 1/2-1/2

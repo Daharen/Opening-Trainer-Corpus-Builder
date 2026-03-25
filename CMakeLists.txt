@@ -68,6 +68,29 @@ endif()
 
 target_link_libraries(opening-trainer-corpus-builder PRIVATE ${OTCB_SQLITE_TARGET})
 
+
+add_executable(build-behavioral-training-extract
+    src/build_behavioral_training_extract_main.cpp
+    src/behavioral_extract.cpp
+    src/chess_types.cpp
+    src/chess_board.cpp
+    src/san_replay.cpp
+    src/position_key.cpp
+)
+
+target_include_directories(build-behavioral-training-extract
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+if(MSVC)
+    target_compile_options(build-behavioral-training-extract PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(build-behavioral-training-extract PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+target_link_libraries(build-behavioral-training-extract PRIVATE ${OTCB_SQLITE_TARGET} zstd)
+
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -80,5 +103,10 @@ if(BUILD_TESTING)
         NAME jsonl_aggregate_payload_validation
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_jsonl_payload.py
                 $<TARGET_FILE:opening-trainer-corpus-builder> ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME behavioral_extract_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_behavioral_extract.py
+                $<TARGET_FILE:build-behavioral-training-extract> ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()
