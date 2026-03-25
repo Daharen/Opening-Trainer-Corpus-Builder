@@ -10,7 +10,9 @@ This directory captures the SQLite dependency surface used by the corpus builder
 ## Layout
 
 - `sqlite3.h`: SQLite public C API header used by the builder.
-- `sqlite3.c`: repo-local build shim used to define the vendored CMake target.
+- `sqlite3.c`: repo-local runtime shim that resolves the SQLite C API from OS-provided
+  runtime libraries (`sqlite3.dll`/`winsqlite3.dll` on Windows, `libsqlite3.so*` on Unix)
+  so default builds do not require a machine-level SQLite *development* package.
 
-If you need to fully pin the implementation source for offline cross-platform builds,
-replace `sqlite3.c` with the official SQLite amalgamation source file from upstream.
+If you need fully pinned implementation source for offline cross-platform builds, replace
+`sqlite3.c` with the official SQLite amalgamation source file from upstream.

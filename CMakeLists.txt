@@ -49,8 +49,10 @@ else()
         target_compile_options(otcb_sqlite_vendor PRIVATE -w)
     endif()
 
-    find_package(SQLite3 REQUIRED)
-    target_link_libraries(otcb_sqlite_vendor PUBLIC SQLite::SQLite3)
+    if(NOT WIN32)
+        target_link_libraries(otcb_sqlite_vendor PUBLIC ${CMAKE_DL_LIBS})
+    endif()
+
     set(OTCB_SQLITE_TARGET otcb_sqlite_vendor)
 endif()
 
