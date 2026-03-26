@@ -213,6 +213,149 @@ def main():
     ])
     assert proto.returncode == 0
 
+    hotfix_work = work / "alias_hotfix"
+    hotfix_work.mkdir(parents=True, exist_ok=True)
+
+    alias_corpus_bundle = hotfix_work / "corpus_bundle"
+    (alias_corpus_bundle / "data").mkdir(parents=True, exist_ok=True)
+    alias_corpus_sqlite = alias_corpus_bundle / "data" / "corpus.sqlite"
+    con = sqlite3.connect(alias_corpus_sqlite)
+    try:
+        con.execute("CREATE TABLE positions(position_key TEXT PRIMARY KEY, total_count INTEGER NOT NULL)")
+        con.execute("CREATE TABLE moves(position_key TEXT NOT NULL, move_uci TEXT NOT NULL, move_count INTEGER NOT NULL)")
+        con.execute("INSERT INTO positions(position_key,total_count) VALUES('fen',1)")
+        con.execute("INSERT INTO moves(position_key,move_uci,move_count) VALUES('fen','e2e4',1)")
+        con.commit()
+    finally:
+        con.close()
+    (alias_corpus_bundle / "manifest.json").write_text(json.dumps({
+        "artifact_id": "alias_corpus",
+        "position_key_format": "fen_normalized",
+        "move_key_format": "uci",
+        "retained_opening_ply": 12,
+        "rating_lower_bound": 400,
+        "rating_upper_bound": 1300,
+        "rating_policy": "both_in_band",
+        "raw_counts_preserved": True,
+        "payload_format": "sqlite",
+        "source_corpus_identity": "test",
+        "input_pgn_path": "test_input.pgn",
+        "aggregate_sqlite_file": "data/corpus.sqlite",
+    }, indent=2))
+
+    alias_profile = hotfix_work / "profile.sqlite"
+    con = sqlite3.connect(alias_profile)
+    try:
+        con.executescript("""
+            CREATE TABLE profile_manifest (
+                schema_version TEXT,
+                builder_version TEXT,
+                source_month_window_summary TEXT,
+                rating_policy_version TEXT,
+                fitting_method_version TEXT,
+                merge_metric_version TEXT,
+                merge_threshold_value TEXT
+            );
+            INSERT INTO profile_manifest VALUES ('1','profile_alias_fixture','2024-01:2024-01','rating_v1','fit_v1','merge_v1','0.05');
+            CREATE TABLE move_pressure_profiles (
+                profile_id TEXT PRIMARY KEY,
+                pressure_sensitivity REAL,
+                decisiveness REAL,
+                move_diversity REAL
+            );
+            CREATE TABLE think_time_profiles (
+                profile_id TEXT PRIMARY KEY,
+                base_time_scale REAL,
+                spread REAL,
+                short_mass REAL,
+                deep_think_tail_mass REAL,
+                timeout_tail_mass REAL
+            );
+            CREATE TABLE context_profile_map (
+                time_control_id TEXT,
+                mover_elo_band TEXT,
+                clock_pressure_bucket TEXT,
+                prev_opp_think_bucket TEXT,
+                opening_ply_band TEXT,
+                support_count INTEGER,
+                move_pressure_profile_id TEXT,
+                think_time_profile_id TEXT
+            );
+        """)
+        con.executemany("INSERT INTO move_pressure_profiles VALUES(?,?,?,?)", [
+            ("mp_400_599", 0.1, 0.2, 0.3),
+            ("mp_600_799", 0.2, 0.3, 0.4),
+            ("mp_1000_1199", 0.3, 0.4, 0.5),
+            ("mp_1200_1399", 0.4, 0.5, 0.6),
+        ])
+        con.executemany("INSERT INTO think_time_profiles VALUES(?,?,?,?,?,?)", [
+            ("tt_400_599", 1.0, 0.1, 0.1, 0.1, 0.1),
+            ("tt_600_799", 1.1, 0.2, 0.2, 0.2, 0.2),
+            ("tt_1000_1199", 1.2, 0.3, 0.3, 0.3, 0.3),
+            ("tt_1200_1399", 1.3, 0.4, 0.4, 0.4, 0.4),
+        ])
+        con.executemany("INSERT INTO context_profile_map VALUES(?,?,?,?,?,?,?,?)", [
+            ("600+0", "400-599", "comfortable", "none", "01-10", 8, "mp_400_599", "tt_400_599"),
+            ("600+0", "600-799", "comfortable", "none", "01-10", 5, "mp_600_799", "tt_600_799"),
+            ("600+0", "1000-1199", "comfortable", "none", "01-10", 9, "mp_1000_1199", "tt_1000_1199"),
+            ("600+0", "1200-1399", "comfortable", "none", "01-10", 6, "mp_1200_1399", "tt_1200_1399"),
+        ])
+        con.commit()
+    finally:
+        con.close()
+    source_profile_hash = hashlib.sha256(alias_profile.read_bytes()).hexdigest()
+
+    alias_bundle_a = hotfix_work / "bundle_a"
+    run([
+        str(emitter_exe),
+        "--input-corpus-bundle", str(alias_corpus_bundle),
+        "--input-profile-set", str(alias_profile),
+        "--output", str(alias_bundle_a),
+        "--overwrite",
+        "--artifact-id", "alias_hotfix_fixture",
+        "--time-controls", "600+0",
+        "--elo-bands", "400-600",
+        "--elo-bands", "1000-1200",
+    ])
+    alias_manifest = json.loads((alias_bundle_a / "manifest.json").read_text())
+    assert alias_manifest["timing_runtime_elo_band_policy_version"] == "derived_200_point_bucket_v1"
+    assert alias_manifest["timing_display_elo_band"] == "400-600,1000-1200"
+    assert alias_manifest["timing_overlay_alias_mode"] == "context_profile_map_alias_export_v1"
+    assert alias_manifest["timing_runtime_elo_band_vocabulary"] == ["1000-1199", "1200-1399", "400-599", "600-799"]
+    assert alias_manifest["timing_display_to_runtime_elo_band_aliases"]["400-600"] == ["400-599", "600-799"]
+    assert alias_manifest["timing_display_to_runtime_elo_band_aliases"]["1000-1200"] == ["1000-1199", "1200-1399"]
+    assert alias_manifest["timing_overlay_alias_conflicts"]
+
+    alias_overlay = json.loads((alias_bundle_a / "data" / "timing_overlay.json").read_text())
+    cmap = alias_overlay["context_profile_map"]
+    assert "600+0|400-599|comfortable|none|01-10" in cmap
+    assert "600+0|600-799|comfortable|none|01-10" in cmap
+    assert "600+0|400-600|comfortable|none|01-10" in cmap
+    assert "600+0|1000-1200|comfortable|none|01-10" in cmap
+    assert cmap["600+0|400-600|comfortable|none|01-10"] == {
+        "move_pressure_profile_id": "mp_400_599",
+        "think_time_profile_id": "tt_400_599",
+    }
+    assert cmap["600+0|1000-1200|comfortable|none|01-10"] == {
+        "move_pressure_profile_id": "mp_1000_1199",
+        "think_time_profile_id": "tt_1000_1199",
+    }
+
+    alias_bundle_b = hotfix_work / "bundle_b"
+    run([
+        str(emitter_exe),
+        "--input-corpus-bundle", str(alias_corpus_bundle),
+        "--input-profile-set", str(alias_profile),
+        "--output", str(alias_bundle_b),
+        "--overwrite",
+        "--artifact-id", "alias_hotfix_fixture",
+        "--time-controls", "600+0",
+        "--elo-bands", "400-600",
+        "--elo-bands", "1000-1200",
+    ])
+    assert digest_bundle(alias_bundle_a) == digest_bundle(alias_bundle_b)
+    assert source_profile_hash == hashlib.sha256(alias_profile.read_bytes()).hexdigest()
+
     print("timing_conditioned_bundle_validation_ok")
 
 

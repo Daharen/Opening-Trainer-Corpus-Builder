@@ -91,9 +91,34 @@ struct ThinkTimeOverlayEntry {
 };
 
 struct ContextOverlayEntry {
+    std::string time_control_id;
+    std::string mover_elo_band;
+    std::string clock_pressure_bucket;
+    std::string prev_opp_think_bucket;
+    std::string opening_ply_band;
     std::string context_key;
+    int support_count = 0;
     std::string move_pressure_profile_id;
     std::string think_time_profile_id;
+};
+
+struct OverlayAliasConflict {
+    std::string alias_key;
+    std::string chosen_canonical_key;
+    std::string replaced_canonical_key;
+    std::string chosen_move_pressure_profile_id;
+    std::string chosen_think_time_profile_id;
+    std::string replaced_move_pressure_profile_id;
+    std::string replaced_think_time_profile_id;
+    int chosen_support_count = 0;
+    int replaced_support_count = 0;
+};
+
+struct OverlayExportResult {
+    std::map<std::string, std::pair<std::string, std::string>> context_profile_map;
+    std::vector<std::string> runtime_elo_band_vocabulary;
+    std::map<std::string, std::vector<std::string>> display_to_runtime_aliases;
+    std::vector<OverlayAliasConflict> alias_conflicts;
 };
 
 static std::string read_file(const std::filesystem::path& path) {
@@ -314,21 +339,22 @@ static std::vector<ContextOverlayEntry> read_context_overlay(sqlite3* db) {
     std::vector<ContextOverlayEntry> rows;
     auto cb = [](void* user, int argc, char** argv, char**) -> int {
         auto* output = static_cast<std::vector<ContextOverlayEntry>*>(user);
-        if (argc < 7 || !argv[0] || !argv[1] || !argv[2] || !argv[3] || !argv[4] || !argv[5] || !argv[6]) return 0;
+        if (argc < 8 || !argv[0] || !argv[1] || !argv[2] || !argv[3] || !argv[4] || !argv[5] || !argv[6]) return 0;
         ContextOverlayEntry row;
-        const std::string time_control_id = argv[0];
-        const std::string mover_elo_band = argv[1];
-        const std::string clock_pressure_bucket = argv[2];
-        const std::string prev_opp_think_bucket = argv[3];
-        const std::string opening_ply_band = argv[4];
-        row.context_key = time_control_id + "|" + mover_elo_band + "|" + clock_pressure_bucket + "|" + prev_opp_think_bucket + "|" + opening_ply_band;
-        row.move_pressure_profile_id = argv[5];
-        row.think_time_profile_id = argv[6];
+        row.time_control_id = argv[0];
+        row.mover_elo_band = argv[1];
+        row.clock_pressure_bucket = argv[2];
+        row.prev_opp_think_bucket = argv[3];
+        row.opening_ply_band = argv[4];
+        row.context_key = row.time_control_id + "|" + row.mover_elo_band + "|" + row.clock_pressure_bucket + "|" + row.prev_opp_think_bucket + "|" + row.opening_ply_band;
+        row.support_count = argv[5] ? std::stoi(argv[5]) : 0;
+        row.move_pressure_profile_id = argv[6] ? argv[6] : "";
+        row.think_time_profile_id = argv[7] ? argv[7] : "";
         output->push_back(row);
         return 0;
     };
     char* errmsg = nullptr;
-    if (sqlite3_exec(db, "SELECT time_control_id,mover_elo_band,clock_pressure_bucket,prev_opp_think_bucket,opening_ply_band,move_pressure_profile_id,think_time_profile_id FROM context_profile_map ORDER BY time_control_id,mover_elo_band,clock_pressure_bucket,prev_opp_think_bucket,opening_ply_band;", cb, &rows, &errmsg) != SQLITE_OK) {
+    if (sqlite3_exec(db, "SELECT time_control_id,mover_elo_band,clock_pressure_bucket,prev_opp_think_bucket,opening_ply_band,support_count,move_pressure_profile_id,think_time_profile_id FROM context_profile_map ORDER BY time_control_id,mover_elo_band,clock_pressure_bucket,prev_opp_think_bucket,opening_ply_band;", cb, &rows, &errmsg) != SQLITE_OK) {
         std::string msg = errmsg ? errmsg : "failed reading context_profile_map";
         if (errmsg) sqlite3_free(errmsg);
         throw std::runtime_error(msg);
@@ -337,7 +363,100 @@ static std::vector<ContextOverlayEntry> read_context_overlay(sqlite3* db) {
     return rows;
 }
 
-static void write_timing_overlay_json(const std::filesystem::path& profile_sqlite, const std::filesystem::path& out_json) {
+static std::vector<std::string> resolve_display_elo_bands(const CorpusInfo& corpus, const TimingConditionedBundleOptions& options) {
+    if (!options.elo_bands.empty()) return options.elo_bands;
+    return {std::to_string(corpus.rating_lower_bound) + "-" + std::to_string(corpus.rating_upper_bound)};
+}
+
+static bool overlaps(const EloRange& a, const EloRange& b) {
+    return !(a.hi < b.lo || b.hi < a.lo);
+}
+
+static OverlayExportResult build_overlay_export(const std::vector<ContextOverlayEntry>& context_rows, const std::vector<std::string>& display_elo_bands) {
+    OverlayExportResult result;
+    std::set<std::string> runtime_vocab_set;
+    std::map<std::string, EloRange> runtime_ranges;
+    for (const auto& row : context_rows) {
+        runtime_vocab_set.insert(row.mover_elo_band);
+        if (!runtime_ranges.count(row.mover_elo_band)) {
+            const auto parsed = parse_elo_range(row.mover_elo_band);
+            if (parsed.has_value()) runtime_ranges.emplace(row.mover_elo_band, *parsed);
+        }
+        result.context_profile_map[row.context_key] = {row.move_pressure_profile_id, row.think_time_profile_id};
+    }
+    result.runtime_elo_band_vocabulary.assign(runtime_vocab_set.begin(), runtime_vocab_set.end());
+
+    std::map<std::string, EloRange> display_ranges;
+    for (const auto& display_band : display_elo_bands) {
+        const auto parsed = parse_elo_range(display_band);
+        if (parsed.has_value()) display_ranges.emplace(display_band, *parsed);
+    }
+
+    for (const auto& display_band : display_elo_bands) {
+        std::vector<std::string> overlaps_for_display;
+        const auto display_it = display_ranges.find(display_band);
+        if (display_it != display_ranges.end()) {
+            for (const auto& runtime_band : result.runtime_elo_band_vocabulary) {
+                const auto runtime_it = runtime_ranges.find(runtime_band);
+                if (runtime_it != runtime_ranges.end() && overlaps(display_it->second, runtime_it->second)) {
+                    overlaps_for_display.push_back(runtime_band);
+                }
+            }
+        }
+        result.display_to_runtime_aliases[display_band] = overlaps_for_display;
+    }
+
+    struct AliasCandidate {
+        std::string canonical_key;
+        int support_count = 0;
+        std::string move_pressure_profile_id;
+        std::string think_time_profile_id;
+    };
+    auto better = [](const AliasCandidate& lhs, const AliasCandidate& rhs) {
+        if (lhs.support_count != rhs.support_count) return lhs.support_count > rhs.support_count;
+        if (lhs.move_pressure_profile_id != rhs.move_pressure_profile_id) return lhs.move_pressure_profile_id < rhs.move_pressure_profile_id;
+        if (lhs.think_time_profile_id != rhs.think_time_profile_id) return lhs.think_time_profile_id < rhs.think_time_profile_id;
+        return lhs.canonical_key < rhs.canonical_key;
+    };
+
+    std::map<std::string, AliasCandidate> alias_winners;
+    for (const auto& row : context_rows) {
+        for (const auto& display_band : display_elo_bands) {
+            const auto alias_it = result.display_to_runtime_aliases.find(display_band);
+            if (alias_it == result.display_to_runtime_aliases.end()) continue;
+            if (std::find(alias_it->second.begin(), alias_it->second.end(), row.mover_elo_band) == alias_it->second.end()) continue;
+            const std::string alias_key = row.time_control_id + "|" + display_band + "|" + row.clock_pressure_bucket + "|" + row.prev_opp_think_bucket + "|" + row.opening_ply_band;
+            AliasCandidate incoming{row.context_key, row.support_count, row.move_pressure_profile_id, row.think_time_profile_id};
+            auto winner_it = alias_winners.find(alias_key);
+            if (winner_it == alias_winners.end()) {
+                alias_winners.emplace(alias_key, incoming);
+                continue;
+            }
+            const bool same_target = winner_it->second.move_pressure_profile_id == incoming.move_pressure_profile_id &&
+                                     winner_it->second.think_time_profile_id == incoming.think_time_profile_id;
+            if (same_target) continue;
+            if (better(incoming, winner_it->second)) {
+                result.alias_conflicts.push_back({alias_key, incoming.canonical_key, winner_it->second.canonical_key,
+                                                  incoming.move_pressure_profile_id, incoming.think_time_profile_id,
+                                                  winner_it->second.move_pressure_profile_id, winner_it->second.think_time_profile_id,
+                                                  incoming.support_count, winner_it->second.support_count});
+                winner_it->second = incoming;
+            } else {
+                result.alias_conflicts.push_back({alias_key, winner_it->second.canonical_key, incoming.canonical_key,
+                                                  winner_it->second.move_pressure_profile_id, winner_it->second.think_time_profile_id,
+                                                  incoming.move_pressure_profile_id, incoming.think_time_profile_id,
+                                                  winner_it->second.support_count, incoming.support_count});
+            }
+        }
+    }
+
+    for (const auto& entry : alias_winners) {
+        result.context_profile_map[entry.first] = {entry.second.move_pressure_profile_id, entry.second.think_time_profile_id};
+    }
+    return result;
+}
+
+static OverlayExportResult write_timing_overlay_json(const std::filesystem::path& profile_sqlite, const std::filesystem::path& out_json, const std::vector<std::string>& display_elo_bands) {
     sqlite3* db = nullptr;
     if (sqlite3_open(profile_sqlite.string().c_str(), &db) != SQLITE_OK) {
         throw std::runtime_error("failed to open profile sqlite for timing overlay export");
@@ -347,6 +466,7 @@ static void write_timing_overlay_json(const std::filesystem::path& profile_sqlit
     const auto move_rows = read_move_pressure_overlay(db);
     const auto think_rows = read_think_time_overlay(db);
     const auto context_rows = read_context_overlay(db);
+    const auto overlay_export = build_overlay_export(context_rows, display_elo_bands);
 
     std::ofstream out(out_json, std::ios::binary);
     out << "{\n";
@@ -373,14 +493,15 @@ static void write_timing_overlay_json(const std::filesystem::path& profile_sqlit
     }
     out << "  },\n";
     out << "  \"context_profile_map\": {\n";
-    for (std::size_t i = 0; i < context_rows.size(); ++i) {
-        const auto& row = context_rows[i];
-        out << "    \"" << json_escape(row.context_key) << "\": {\"move_pressure_profile_id\": \"" << json_escape(row.move_pressure_profile_id)
-            << "\", \"think_time_profile_id\": \"" << json_escape(row.think_time_profile_id) << "\"}"
-            << (i + 1 < context_rows.size() ? "," : "") << "\n";
+    std::size_t context_index = 0;
+    for (const auto& row : overlay_export.context_profile_map) {
+        out << "    \"" << json_escape(row.first) << "\": {\"move_pressure_profile_id\": \"" << json_escape(row.second.first)
+            << "\", \"think_time_profile_id\": \"" << json_escape(row.second.second) << "\"}"
+            << (++context_index < overlay_export.context_profile_map.size() ? "," : "") << "\n";
     }
     out << "  }\n";
     out << "}\n";
+    return overlay_export;
 }
 
 static std::filesystem::path resolve_corpus_sqlite(const std::filesystem::path& input, CorpusInfo& info) {
@@ -639,10 +760,11 @@ TimingConditionedBundleCounters build_timing_conditioned_corpus_bundle(const Tim
     const auto corpus_alias_copy = output_root / "data" / "exact_corpus.sqlite";
     const auto profile_copy = output_root / "data" / "behavioral_profile_set.sqlite";
     const auto timing_overlay_json = output_root / "data" / "timing_overlay.json";
+    const auto display_elo_bands = resolve_display_elo_bands(corpus, options);
     std::filesystem::copy_file(corpus.source_sqlite_path, corpus_copy, std::filesystem::copy_options::overwrite_existing);
     std::filesystem::copy_file(corpus.source_sqlite_path, corpus_alias_copy, std::filesystem::copy_options::overwrite_existing);
     std::filesystem::copy_file(profile.source_sqlite_path, profile_copy, std::filesystem::copy_options::overwrite_existing);
-    write_timing_overlay_json(profile_copy, timing_overlay_json);
+    const OverlayExportResult overlay_export = write_timing_overlay_json(profile_copy, timing_overlay_json, display_elo_bands);
 
     if (options.embed_fit_diagnostics) {
         sqlite3* src = nullptr;
@@ -689,6 +811,42 @@ TimingConditionedBundleCounters build_timing_conditioned_corpus_bundle(const Tim
     manifest << "  \"raw_counts_preserved\": " << (corpus.raw_counts_preserved ? "true" : "false") << ",\n";
     manifest << "  \"timing_overlay_prototype_only\": " << (options.prototype_label.empty() ? "false" : "true") << ",\n";
     manifest << "  \"timing_overlay_policy_version\": \"" << kOverlayPolicyVersion << "\",\n";
+    manifest << "  \"timing_runtime_elo_band_policy_version\": \"derived_200_point_bucket_v1\",\n";
+    manifest << "  \"timing_runtime_elo_band_vocabulary\": [";
+    for (std::size_t i = 0; i < overlay_export.runtime_elo_band_vocabulary.size(); ++i) {
+        if (i > 0) manifest << ',';
+        manifest << "\"" << json_escape(overlay_export.runtime_elo_band_vocabulary[i]) << "\"";
+    }
+    manifest << "],\n";
+    manifest << "  \"timing_display_elo_band\": \"" << json_escape(join(display_elo_bands, ",")) << "\",\n";
+    manifest << "  \"timing_display_to_runtime_elo_band_aliases\": {";
+    std::size_t alias_map_index = 0;
+    for (const auto& display_to_runtime : overlay_export.display_to_runtime_aliases) {
+        if (alias_map_index++ > 0) manifest << ',';
+        manifest << "\"" << json_escape(display_to_runtime.first) << "\":[";
+        for (std::size_t i = 0; i < display_to_runtime.second.size(); ++i) {
+            if (i > 0) manifest << ',';
+            manifest << "\"" << json_escape(display_to_runtime.second[i]) << "\"";
+        }
+        manifest << "]";
+    }
+    manifest << "},\n";
+    manifest << "  \"timing_overlay_alias_mode\": \"context_profile_map_alias_export_v1\",\n";
+    manifest << "  \"timing_overlay_alias_conflicts\": [";
+    for (std::size_t i = 0; i < overlay_export.alias_conflicts.size(); ++i) {
+        const auto& conflict = overlay_export.alias_conflicts[i];
+        if (i > 0) manifest << ',';
+        manifest << "{\"alias_key\":\"" << json_escape(conflict.alias_key)
+                 << "\",\"chosen_canonical_key\":\"" << json_escape(conflict.chosen_canonical_key)
+                 << "\",\"replaced_canonical_key\":\"" << json_escape(conflict.replaced_canonical_key)
+                 << "\",\"chosen_move_pressure_profile_id\":\"" << json_escape(conflict.chosen_move_pressure_profile_id)
+                 << "\",\"chosen_think_time_profile_id\":\"" << json_escape(conflict.chosen_think_time_profile_id)
+                 << "\",\"replaced_move_pressure_profile_id\":\"" << json_escape(conflict.replaced_move_pressure_profile_id)
+                 << "\",\"replaced_think_time_profile_id\":\"" << json_escape(conflict.replaced_think_time_profile_id)
+                 << "\",\"chosen_support_count\":" << conflict.chosen_support_count
+                 << ",\"replaced_support_count\":" << conflict.replaced_support_count << "}";
+    }
+    manifest << "],\n";
     manifest << "  \"context_key_contract_version\": \"" << kContextContractVersion << "\",\n";
     manifest << "  \"precomputed_effective_weights_present\": false,\n";
     manifest << "  \"context_contract_dimensions\": \"time_control_id,mover_elo_band,clock_pressure_bucket,prev_opp_think_bucket,opening_ply_band\",\n";
