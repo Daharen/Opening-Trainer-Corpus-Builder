@@ -225,10 +225,10 @@ Supported options:
 
 - `manifest.json`: stable audit surface that records exact corpus identity, profile-set identity,
   compatibility warnings, context contract version, timing overlay policy version, deterministic
-  timestamp metadata, trainer-compatibility legacy fields, payload references, and explicit timing
-  ELO-band dual-contract metadata.
-- `data/corpus.sqlite`: trainer-compatible exact corpus payload path (primary runtime path).
-- `data/exact_corpus.sqlite`: optional audit-friendly alias copy of exact corpus payload.
+  timestamp metadata, trainer-compatibility legacy fields, payload references, explicit canonical
+  corpus contract metadata, and explicit timing ELO-band dual-contract metadata.
+- `data/exact_corpus.sqlite`: canonical exact payload path (authoritative corpus SQLite).
+- `data/corpus.sqlite`: compatibility-only alias path for transitional trainer/runtime consumers.
 - `data/behavioral_profile_set.sqlite`: authoritative Behavioral Profile Set SQLite audit artifact.
 - `data/timing_overlay.json`: trainer-readable timing overlay JSON export derived from
   `behavioral_profile_set.sqlite` with:
@@ -257,6 +257,18 @@ For current trainer compatibility, `manifest.json` now emits legacy aggregate-bu
 `sqlite_corpus_file`, `corpus_sqlite_file`, `payload_file`, and `payload_status`) and points all
 trainer payload pointers at `data/corpus.sqlite`. It also emits `timing_overlay_file` set to
 `data/timing_overlay.json`.
+
+Timing-conditioned manifests now also propagate canonical corpus contract fields from the input
+exact corpus bundle (`retained_ply_depth`, `max_supported_player_moves`, `time_control_id`,
+`initial_time_seconds`, `increment_seconds`, `time_format_label`, `target_rating_band`,
+`rating_policy`, `payload_format`, `payload_version`, and `bundle_scope` when available) and fail
+fast if required canonical metadata is missing.
+
+Exact payload deduplication now prefers a hardlink compatibility alias:
+- canonical write: `data/exact_corpus.sqlite`
+- compatibility alias: `data/corpus.sqlite`
+- manifest fields: `canonical_exact_payload_file`, `compatibility_exact_payload_file`,
+  `exact_payload_alias_mode` (`hardlink`, `copy`, or `none`), and `exact_payload_alias_warnings`.
 
 ### Compatibility checks
 
