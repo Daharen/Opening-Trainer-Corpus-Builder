@@ -34,7 +34,15 @@ struct CorpusInfo {
     std::string position_key_format;
     std::string move_key_format;
     std::string payload_encoding_family;
+    std::string payload_version;
     std::string rating_policy;
+    std::string target_rating_band_json;
+    std::string time_control_id;
+    int initial_time_seconds = 0;
+    int increment_seconds = 0;
+    std::string time_format_label;
+    int max_supported_player_moves = 0;
+    std::string bundle_scope;
     std::string source_window;
     int rating_lower_bound = 0;
     int rating_upper_bound = 0;
@@ -176,6 +184,44 @@ static std::optional<bool> extract_json_bool(const std::string& json, const std:
     while (i < json.size() && std::isspace(static_cast<unsigned char>(json[i]))) ++i;
     if (json.compare(i, 4, "true") == 0) return true;
     if (json.compare(i, 5, "false") == 0) return false;
+    return std::nullopt;
+}
+
+static std::optional<std::string> extract_json_object_literal(const std::string& json, const std::string& key) {
+    const std::string marker = "\"" + key + "\"";
+    const auto key_pos = json.find(marker);
+    if (key_pos == std::string::npos) return std::nullopt;
+    auto colon = json.find(':', key_pos + marker.size());
+    if (colon == std::string::npos) return std::nullopt;
+    std::size_t i = colon + 1;
+    while (i < json.size() && std::isspace(static_cast<unsigned char>(json[i]))) ++i;
+    if (i >= json.size() || json[i] != '{') return std::nullopt;
+
+    const std::size_t start = i;
+    int depth = 0;
+    bool in_string = false;
+    for (; i < json.size(); ++i) {
+        const char ch = json[i];
+        if (in_string) {
+            if (ch == '\\' && i + 1 < json.size()) {
+                ++i;
+                continue;
+            }
+            if (ch == '"') in_string = false;
+            continue;
+        }
+        if (ch == '"') {
+            in_string = true;
+            continue;
+        }
+        if (ch == '{') ++depth;
+        if (ch == '}') {
+            --depth;
+            if (depth == 0) {
+                return json.substr(start, i - start + 1);
+            }
+        }
+    }
     return std::nullopt;
 }
 
@@ -512,15 +558,48 @@ static std::filesystem::path resolve_corpus_sqlite(const std::filesystem::path& 
         info.artifact_id = extract_json_string(json, "artifact_id").value_or("unknown_corpus_artifact");
         info.position_key_format = extract_json_string(json, "position_key_format").value_or("unknown");
         info.move_key_format = extract_json_string(json, "move_key_format").value_or("unknown");
-        info.retained_opening_ply = extract_json_int(json, "retained_opening_ply").value_or(0);
+        const auto retained_ply_depth = extract_json_int(json, "retained_ply_depth");
+        const auto retained_opening_ply = extract_json_int(json, "retained_opening_ply");
+        const auto initial_time_seconds = extract_json_int(json, "initial_time_seconds");
+        const auto increment_seconds = extract_json_int(json, "increment_seconds");
+        const auto max_supported_player_moves = extract_json_int(json, "max_supported_player_moves");
+        info.retained_opening_ply = retained_ply_depth.value_or(retained_opening_ply.value_or(0));
         info.rating_lower_bound = extract_json_int(json, "rating_lower_bound").value_or(0);
         info.rating_upper_bound = extract_json_int(json, "rating_upper_bound").value_or(0);
         info.rating_policy = extract_json_string(json, "rating_policy").value_or("unknown");
         info.raw_counts_preserved = extract_json_bool(json, "raw_counts_preserved").value_or(false);
         info.payload_encoding_family = extract_json_string(json, "payload_format").value_or("unknown");
+        info.payload_version = extract_json_string(json, "payload_version").value_or("unknown");
+        info.target_rating_band_json = extract_json_object_literal(json, "target_rating_band").value_or("");
+        info.time_control_id = extract_json_string(json, "time_control_id").value_or("");
+        info.initial_time_seconds = initial_time_seconds.value_or(0);
+        info.increment_seconds = increment_seconds.value_or(0);
+        info.time_format_label = extract_json_string(json, "time_format_label").value_or("");
+        info.max_supported_player_moves = max_supported_player_moves.value_or(0);
+        info.bundle_scope = extract_json_string(json, "bundle_scope").value_or("");
         info.source_identity = extract_json_string(json, "source_corpus_identity").value_or("unknown");
         info.source_window = extract_json_string(json, "input_pgn_path").value_or("unknown");
-        const auto sqlite_rel = extract_json_string(json, "aggregate_sqlite_file").value_or("data/corpus.sqlite");
+
+        std::vector<std::string> missing_canonical_fields;
+        if (!retained_ply_depth.has_value() && !retained_opening_ply.has_value()) missing_canonical_fields.push_back("retained_ply_depth");
+        if (!max_supported_player_moves.has_value()) missing_canonical_fields.push_back("max_supported_player_moves");
+        if (info.time_control_id.empty()) missing_canonical_fields.push_back("time_control_id");
+        if (!initial_time_seconds.has_value() || info.initial_time_seconds <= 0) missing_canonical_fields.push_back("initial_time_seconds");
+        if (!increment_seconds.has_value() || info.increment_seconds < 0) missing_canonical_fields.push_back("increment_seconds");
+        if (info.time_format_label.empty()) missing_canonical_fields.push_back("time_format_label");
+        if (info.rating_policy.empty() || info.rating_policy == "unknown") missing_canonical_fields.push_back("rating_policy");
+        if (info.target_rating_band_json.empty()) missing_canonical_fields.push_back("target_rating_band");
+        if (info.payload_encoding_family.empty() || info.payload_encoding_family == "unknown") missing_canonical_fields.push_back("payload_format");
+        if (info.payload_version.empty() || info.payload_version == "unknown") missing_canonical_fields.push_back("payload_version");
+        if (!missing_canonical_fields.empty()) {
+            throw std::runtime_error("input corpus manifest missing required canonical metadata fields: " + join(missing_canonical_fields, ","));
+        }
+
+        const auto sqlite_rel = extract_json_string(json, "canonical_exact_payload_file")
+            .value_or(extract_json_string(json, "aggregate_sqlite_file")
+            .value_or(extract_json_string(json, "payload_file")
+            .value_or(extract_json_string(json, "sqlite_corpus_file")
+            .value_or(extract_json_string(json, "corpus_sqlite_file").value_or("data/corpus.sqlite")))));
         const auto sqlite_path = input / sqlite_rel;
         if (!std::filesystem::exists(sqlite_path)) throw std::runtime_error("input corpus sqlite payload missing: " + sqlite_path.string());
         return sqlite_path;
@@ -530,6 +609,7 @@ static std::filesystem::path resolve_corpus_sqlite(const std::filesystem::path& 
     info.source_sqlite_path = input;
     info.artifact_id = input.filename().string();
     info.payload_encoding_family = "sqlite";
+    info.payload_version = "unknown";
     info.source_identity = input.filename().string();
     info.source_window = "unknown";
     return input;
@@ -756,13 +836,22 @@ TimingConditionedBundleCounters build_timing_conditioned_corpus_bundle(const Tim
         ? (std::string("timing_conditioned_") + make_hex(fnv1a64(corpus.artifact_id + "|" + profile.artifact_id + "|" + join(options.time_controls, ",") + "|" + join(options.elo_bands, ",") + "|" + options.prototype_label)))
         : options.artifact_id_override;
 
-    const auto corpus_copy = output_root / "data" / "corpus.sqlite";
-    const auto corpus_alias_copy = output_root / "data" / "exact_corpus.sqlite";
+    const auto canonical_payload_file = output_root / "data" / "exact_corpus.sqlite";
+    const auto compatibility_payload_file = output_root / "data" / "corpus.sqlite";
     const auto profile_copy = output_root / "data" / "behavioral_profile_set.sqlite";
     const auto timing_overlay_json = output_root / "data" / "timing_overlay.json";
     const auto display_elo_bands = resolve_display_elo_bands(corpus, options);
-    std::filesystem::copy_file(corpus.source_sqlite_path, corpus_copy, std::filesystem::copy_options::overwrite_existing);
-    std::filesystem::copy_file(corpus.source_sqlite_path, corpus_alias_copy, std::filesystem::copy_options::overwrite_existing);
+    std::string exact_payload_alias_mode = "none";
+    std::vector<std::string> exact_payload_alias_warnings;
+    std::filesystem::copy_file(corpus.source_sqlite_path, canonical_payload_file, std::filesystem::copy_options::overwrite_existing);
+    try {
+        std::filesystem::create_hard_link(canonical_payload_file, compatibility_payload_file);
+        exact_payload_alias_mode = "hardlink";
+    } catch (const std::filesystem::filesystem_error& ex) {
+        std::filesystem::copy_file(canonical_payload_file, compatibility_payload_file, std::filesystem::copy_options::overwrite_existing);
+        exact_payload_alias_mode = "copy";
+        exact_payload_alias_warnings.push_back(std::string("compatibility payload alias hardlink failed; copied bytes instead: ") + ex.what());
+    }
     std::filesystem::copy_file(profile.source_sqlite_path, profile_copy, std::filesystem::copy_options::overwrite_existing);
     const OverlayExportResult overlay_export = write_timing_overlay_json(profile_copy, timing_overlay_json, display_elo_bands);
 
@@ -794,19 +883,34 @@ TimingConditionedBundleCounters build_timing_conditioned_corpus_bundle(const Tim
     manifest << "  \"behavioral_profile_source_month_window_summary\": \"" << json_escape(profile.source_month_window_summary) << "\",\n";
     manifest << "  \"rating_lower_bound\": " << corpus.rating_lower_bound << ",\n";
     manifest << "  \"rating_upper_bound\": " << corpus.rating_upper_bound << ",\n";
+    manifest << "  \"rating_policy\": \"" << json_escape(corpus.rating_policy) << "\",\n";
     manifest << "  \"rating_eligibility_policy\": \"" << json_escape(corpus.rating_policy) << "\",\n";
     manifest << "  \"retained_opening_depth\": " << corpus.retained_opening_ply << ",\n";
     manifest << "  \"position_key_format_description\": \"" << json_escape(corpus.position_key_format) << "\",\n";
     manifest << "  \"move_representation_description\": \"" << json_escape(corpus.move_key_format) << "\",\n";
     manifest << "  \"payload_encoding_family\": \"" << json_escape(corpus.payload_encoding_family) << "\",\n";
     manifest << "  \"build_status\": \"aggregation_complete\",\n";
-    manifest << "  \"payload_format\": \"sqlite\",\n";
+    manifest << "  \"payload_format\": \"" << json_escape(corpus.payload_encoding_family) << "\",\n";
+    manifest << "  \"payload_version\": \"" << json_escape(corpus.payload_version) << "\",\n";
     manifest << "  \"position_key_format\": \"fen_normalized\",\n";
     manifest << "  \"move_key_format\": \"uci\",\n";
     manifest << "  \"retained_ply_depth\": " << corpus.retained_opening_ply << ",\n";
+    manifest << "  \"max_supported_player_moves\": " << corpus.max_supported_player_moves << ",\n";
+    manifest << "  \"time_control_id\": \"" << json_escape(corpus.time_control_id) << "\",\n";
+    manifest << "  \"initial_time_seconds\": " << corpus.initial_time_seconds << ",\n";
+    manifest << "  \"increment_seconds\": " << corpus.increment_seconds << ",\n";
+    manifest << "  \"time_format_label\": \"" << json_escape(corpus.time_format_label) << "\",\n";
+    manifest << "  \"target_rating_band\": " << (corpus.target_rating_band_json.empty() ? "{\"minimum\":0,\"maximum\":0}" : corpus.target_rating_band_json) << ",\n";
     manifest << "  \"sqlite_corpus_file\": \"data/corpus.sqlite\",\n";
     manifest << "  \"corpus_sqlite_file\": \"data/corpus.sqlite\",\n";
     manifest << "  \"payload_file\": \"data/corpus.sqlite\",\n";
+    manifest << "  \"canonical_exact_payload_file\": \"data/exact_corpus.sqlite\",\n";
+    manifest << "  \"compatibility_exact_payload_file\": \"data/corpus.sqlite\",\n";
+    manifest << "  \"exact_payload_alias_mode\": \"" << json_escape(exact_payload_alias_mode) << "\",\n";
+    manifest << "  \"behavioral_profile_set_file\": \"data/behavioral_profile_set.sqlite\",\n";
+    if (!corpus.bundle_scope.empty()) {
+        manifest << "  \"bundle_scope\": \"" << json_escape(corpus.bundle_scope) << "\",\n";
+    }
     manifest << "  \"payload_status\": \"raw_aggregate_counts_present_non_final_trainer_payload\",\n";
     manifest << "  \"raw_counts_preserved\": " << (corpus.raw_counts_preserved ? "true" : "false") << ",\n";
     manifest << "  \"timing_overlay_prototype_only\": " << (options.prototype_label.empty() ? "false" : "true") << ",\n";
@@ -855,6 +959,12 @@ TimingConditionedBundleCounters build_timing_conditioned_corpus_bundle(const Tim
     manifest << "  \"prototype_label\": \"" << json_escape(options.prototype_label) << "\",\n";
     manifest << "  \"timing_overlay_file\": \"data/timing_overlay.json\",\n";
     manifest << "  \"payload_files\": [\"data/corpus.sqlite\",\"data/exact_corpus.sqlite\",\"data/behavioral_profile_set.sqlite\",\"data/timing_overlay.json\"],\n";
+    manifest << "  \"exact_payload_alias_warnings\": [";
+    for (std::size_t i = 0; i < exact_payload_alias_warnings.size(); ++i) {
+        if (i > 0) manifest << ',';
+        manifest << "\"" << json_escape(exact_payload_alias_warnings[i]) << "\"";
+    }
+    manifest << "],\n";
     manifest << "  \"compatibility_warnings\": [";
     for (std::size_t i = 0; i < compatibility.warnings.size(); ++i) {
         if (i > 0) manifest << ',';

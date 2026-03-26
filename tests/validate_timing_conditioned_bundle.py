@@ -119,13 +119,27 @@ def main():
         "context_key_contract_version",
         "build_status",
         "payload_format",
+        "payload_version",
         "position_key_format",
         "move_key_format",
         "retained_ply_depth",
+        "max_supported_player_moves",
+        "time_control_id",
+        "initial_time_seconds",
+        "increment_seconds",
+        "time_format_label",
+        "target_rating_band",
+        "rating_policy",
         "sqlite_corpus_file",
         "corpus_sqlite_file",
         "payload_file",
+        "canonical_exact_payload_file",
+        "compatibility_exact_payload_file",
+        "exact_payload_alias_mode",
+        "behavioral_profile_set_file",
         "payload_status",
+        "time_controls_filter",
+        "elo_bands_filter",
         "timing_overlay_file",
         "compatibility_warnings",
     ]
@@ -138,12 +152,28 @@ def main():
     assert (bundle_a / "data" / "timing_overlay.json").exists()
     assert manifest["build_status"] == "aggregation_complete"
     assert manifest["payload_format"] == "sqlite"
+    assert manifest["payload_version"] == "1"
     assert manifest["position_key_format"] == "fen_normalized"
     assert manifest["move_key_format"] == "uci"
+    assert manifest["rating_policy"] == "both_in_band"
+    assert manifest["retained_ply_depth"] == 12
+    assert manifest["max_supported_player_moves"] == 6
+    assert manifest["time_control_id"] == "600+0"
+    assert manifest["initial_time_seconds"] == 600
+    assert manifest["increment_seconds"] == 0
+    assert manifest["time_format_label"] == "Rapid"
+    assert manifest["target_rating_band"] == {"minimum": 1000, "maximum": 2000}
     assert manifest["sqlite_corpus_file"] == "data/corpus.sqlite"
     assert manifest["corpus_sqlite_file"] == "data/corpus.sqlite"
     assert manifest["payload_file"] == "data/corpus.sqlite"
+    assert manifest["canonical_exact_payload_file"] == "data/exact_corpus.sqlite"
+    assert manifest["compatibility_exact_payload_file"] == "data/corpus.sqlite"
+    assert manifest["behavioral_profile_set_file"] == "data/behavioral_profile_set.sqlite"
+    assert manifest["exact_payload_alias_mode"] in {"hardlink", "copy"}
+    assert manifest["time_controls_filter"] == "300+2"
+    assert manifest["elo_bands_filter"] == "1000-2000"
     assert manifest["timing_overlay_file"] == "data/timing_overlay.json"
+    assert isinstance(manifest["exact_payload_alias_warnings"], list)
 
     overlay = json.loads((bundle_a / "data" / "timing_overlay.json").read_text())
     assert overlay["context_contract_version"] == manifest["context_key_contract_version"]
@@ -179,6 +209,16 @@ def main():
         assert con.execute("SELECT COUNT(*) FROM moves").fetchone()[0] > 0
     finally:
         con.close()
+
+    canonical_payload = bundle_a / "data" / "exact_corpus.sqlite"
+    compatibility_payload = bundle_a / "data" / "corpus.sqlite"
+    assert canonical_payload.read_bytes() == compatibility_payload.read_bytes()
+    if manifest["exact_payload_alias_mode"] == "hardlink":
+        assert canonical_payload.stat().st_ino == compatibility_payload.stat().st_ino
+        assert canonical_payload.stat().st_nlink >= 2
+    else:
+        assert manifest["exact_payload_alias_mode"] == "copy"
+        assert manifest["exact_payload_alias_warnings"]
 
     bundle_b = work / "bundle_b"
     run([
@@ -218,6 +258,24 @@ def main():
     ])
     assert proto.returncode == 0
 
+    missing_contract_bundle = work / "missing_contract_bundle"
+    (missing_contract_bundle / "data").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(corpus_bundle / "data" / "corpus.sqlite", missing_contract_bundle / "data" / "corpus.sqlite")
+    (missing_contract_bundle / "manifest.json").write_text(json.dumps({
+        "artifact_id": "missing_contract",
+        "rating_policy": "both_in_band",
+        "aggregate_sqlite_file": "data/corpus.sqlite",
+    }, indent=2))
+    missing_contract = run([
+        str(emitter_exe),
+        "--input-corpus-bundle", str(missing_contract_bundle),
+        "--input-profile-set", str(profile_db),
+        "--output", str(work / "missing_contract_output"),
+        "--overwrite",
+    ], expect_ok=False)
+    assert missing_contract.returncode != 0
+    assert "missing required canonical metadata fields" in (missing_contract.stderr + missing_contract.stdout)
+
     hotfix_work = work / "alias_hotfix"
     hotfix_work.mkdir(parents=True, exist_ok=True)
 
@@ -238,11 +296,19 @@ def main():
         "position_key_format": "fen_normalized",
         "move_key_format": "uci",
         "retained_opening_ply": 12,
+        "retained_ply_depth": 12,
+        "max_supported_player_moves": 6,
         "rating_lower_bound": 400,
         "rating_upper_bound": 1300,
         "rating_policy": "both_in_band",
+        "target_rating_band": {"minimum": 400, "maximum": 1300},
+        "time_control_id": "600+0",
+        "initial_time_seconds": 600,
+        "increment_seconds": 0,
+        "time_format_label": "Rapid",
         "raw_counts_preserved": True,
         "payload_format": "sqlite",
+        "payload_version": "1",
         "source_corpus_identity": "test",
         "input_pgn_path": "test_input.pgn",
         "aggregate_sqlite_file": "data/corpus.sqlite",
