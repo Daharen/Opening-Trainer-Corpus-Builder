@@ -36,6 +36,7 @@ enum class MoveKeyFormat {
 enum class PayloadFormat {
     Jsonl,
     Sqlite,
+    ExactSqliteV2Compact,
 };
 
 std::string to_string(RatingPolicy policy);
@@ -84,6 +85,11 @@ struct BuildConfig {
     std::optional<MoveKeyFormat> move_key_format;
     int min_position_count = 1;
     PayloadFormat payload_format = PayloadFormat::Jsonl;
+    bool emit_legacy_sqlite_mirror = true;
+    std::string time_control_id = "600+0";
+    int initial_time_seconds = 600;
+    int increment_seconds = 0;
+    std::string time_format_label = "Rapid";
     std::string input_format = "pgn";
     bool emit_progress_log = false;
     bool emit_status_json = false;

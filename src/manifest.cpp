@@ -33,6 +33,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     ManifestData manifest{};
     manifest.artifact_schema_version = aggregation_summary ? "otcb_scaffold_v5" : (extraction_summary ? "otcb_scaffold_v4" : (scan_summary ? "otcb_scaffold_v3" : "otcb_scaffold_v2"));
     manifest.artifact_id = artifact_id;
+    manifest.builder_repo_commit = "unknown";
     manifest.builder_mode = to_string(config.mode);
     manifest.build_status = aggregation_summary ? "aggregation_complete" : (extraction_summary ? "opening_extraction_complete" : (scan_summary ? "header_scan_complete" : (plan.planning_completed ? "planning_complete" : (config.mode == BuildMode::DryRun ? "scaffold_complete" : "preflight_complete"))));
     manifest.source_corpus_identity = "single_input_pgn_scaffold_source";
@@ -42,6 +43,12 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.rating_upper_bound = config.max_rating;
     manifest.rating_policy = to_string(*config.rating_policy);
     manifest.retained_opening_ply = config.retained_ply;
+    manifest.retained_ply_depth = config.retained_ply;
+    manifest.max_supported_player_moves = config.retained_ply / 2;
+    manifest.time_control_id = config.time_control_id;
+    manifest.initial_time_seconds = config.initial_time_seconds;
+    manifest.increment_seconds = config.increment_seconds;
+    manifest.time_format_label = config.time_format_label;
     manifest.threads = config.threads;
     manifest.max_games = config.max_games;
     manifest.progress_interval = config.progress_interval;
@@ -52,8 +59,15 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.raw_counts_preserved = true;
     manifest.effective_weights_precomputed = false;
     manifest.payload_format = to_string(config.payload_format);
+    manifest.payload_version = config.payload_format == PayloadFormat::ExactSqliteV2Compact ? "2" : "1";
+    manifest.payload_format_canonical = config.payload_format == PayloadFormat::ExactSqliteV2Compact ? "exact_sqlite_v2_compact" : to_string(config.payload_format);
+    manifest.compatibility_payload_format = config.payload_format == PayloadFormat::ExactSqliteV2Compact && config.emit_legacy_sqlite_mirror ? "sqlite_v1_legacy_mirror" : "";
+    manifest.compatibility_payload_emitted = config.payload_format == PayloadFormat::ExactSqliteV2Compact && config.emit_legacy_sqlite_mirror;
+    manifest.compatibility_payload_semantics_identical = manifest.compatibility_payload_emitted;
     manifest.position_key_format = config.position_key_format.has_value() ? to_string(*config.position_key_format) : "not_yet_implemented_scaffold_position_keys";
     manifest.move_key_format = config.move_key_format.has_value() ? to_string(*config.move_key_format) : "not_yet_implemented_scaffold_move_keys";
+    manifest.position_key_format_description = config.payload_format == PayloadFormat::ExactSqliteV2Compact ? "positions.position_key_compact packed binary with positions.position_key_inspect deterministic reconstruction" : "canonical normalized FEN-family text key";
+    manifest.move_representation_description = config.payload_format == PayloadFormat::ExactSqliteV2Compact ? "moves dictionary table keyed by move_id with deterministic uci_text mapping" : "uci move key text";
     manifest.planner_target_range_bytes = config.target_range_bytes;
     manifest.planner_boundary_scan_bytes = config.boundary_scan_bytes;
     manifest.planner_max_ranges = config.max_ranges;
@@ -114,12 +128,21 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
             manifest.payload_files.push_back("data/corpus.sqlite");
             manifest.sqlite_positions_rows = aggregation_summary->sqlite_positions_rows;
             manifest.sqlite_moves_rows = aggregation_summary->sqlite_moves_rows;
+        } else if (config.payload_format == PayloadFormat::ExactSqliteV2Compact) {
+            manifest.payload_files.push_back("data/corpus_compact.sqlite");
+            if (config.emit_legacy_sqlite_mirror) manifest.payload_files.push_back("data/corpus.sqlite");
+            manifest.aggregate_sqlite_file = "data/corpus_compact.sqlite";
+            manifest.sqlite_positions_rows = aggregation_summary->sqlite_positions_rows;
+            manifest.sqlite_moves_rows = aggregation_summary->sqlite_moves_rows;
         } else {
             manifest.payload_files.push_back("data/aggregated_position_move_counts.jsonl");
             manifest.aggregate_sqlite_file.clear();
         }
         if (config.emit_aggregate_preview) manifest.payload_files.push_back("data/aggregate_preview.jsonl");
         manifest.payload_status = "raw_aggregate_counts_present_non_final_trainer_payload";
+        manifest.total_accepted_games = aggregation_summary->total_games_accepted_upstream;
+        manifest.total_emitted_positions = aggregation_summary->total_unique_positions_emitted;
+        manifest.total_emitted_move_entries = aggregation_summary->total_aggregate_move_entries_emitted;
         manifest.notes.push_back("aggregate-counts emits raw aggregated position->move counts now, while shaping, suppression, weighting, and final trainer-side consumption remain deferred.");
     } else if (scan_summary) {
         manifest.notes.push_back("scan-headers mode performs header-only eligibility classification; movetext replay remains deferred.");
@@ -135,6 +158,7 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "{\n";
     output << "  \"artifact_schema_version\": \"" << json_escape(manifest.artifact_schema_version) << "\",\n";
     output << "  \"artifact_id\": \"" << json_escape(manifest.artifact_id) << "\",\n";
+    output << "  \"builder_repo_commit\": \"" << json_escape(manifest.builder_repo_commit) << "\",\n";
     output << "  \"builder_mode\": \"" << json_escape(manifest.builder_mode) << "\",\n";
     output << "  \"build_status\": \"" << json_escape(manifest.build_status) << "\",\n";
     output << "  \"source_corpus_identity\": \"" << json_escape(manifest.source_corpus_identity) << "\",\n";
@@ -145,7 +169,14 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"rating_lower_bound\": " << manifest.rating_lower_bound << ",\n";
     output << "  \"rating_upper_bound\": " << manifest.rating_upper_bound << ",\n";
     output << "  \"rating_policy\": \"" << json_escape(manifest.rating_policy) << "\",\n";
+    output << "  \"target_rating_band\": {\"minimum\": " << manifest.rating_lower_bound << ", \"maximum\": " << manifest.rating_upper_bound << "},\n";
     output << "  \"retained_opening_ply\": " << manifest.retained_opening_ply << ",\n";
+    output << "  \"retained_ply_depth\": " << manifest.retained_ply_depth << ",\n";
+    output << "  \"max_supported_player_moves\": " << manifest.max_supported_player_moves << ",\n";
+    output << "  \"time_control_id\": \"" << json_escape(manifest.time_control_id) << "\",\n";
+    output << "  \"initial_time_seconds\": " << manifest.initial_time_seconds << ",\n";
+    output << "  \"increment_seconds\": " << manifest.increment_seconds << ",\n";
+    output << "  \"time_format_label\": \"" << json_escape(manifest.time_format_label) << "\",\n";
     output << "  \"threads\": " << manifest.threads << ",\n";
     output << "  \"max_games\": " << manifest.max_games << ",\n";
     output << "  \"progress_interval\": " << manifest.progress_interval << ",\n";
@@ -156,8 +187,15 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"raw_counts_preserved\": " << (manifest.raw_counts_preserved ? "true" : "false") << ",\n";
     output << "  \"effective_weights_precomputed\": " << (manifest.effective_weights_precomputed ? "true" : "false") << ",\n";
     output << "  \"payload_format\": \"" << json_escape(manifest.payload_format) << "\",\n";
+    output << "  \"payload_version\": \"" << json_escape(manifest.payload_version) << "\",\n";
+    output << "  \"canonical_payload_format\": \"" << json_escape(manifest.payload_format_canonical) << "\",\n";
+    output << "  \"compatibility_payload_format\": \"" << json_escape(manifest.compatibility_payload_format) << "\",\n";
+    output << "  \"compatibility_payload_emitted\": " << (manifest.compatibility_payload_emitted ? "true" : "false") << ",\n";
+    output << "  \"compatibility_payload_semantics_identical\": " << (manifest.compatibility_payload_semantics_identical ? "true" : "false") << ",\n";
     output << "  \"position_key_format\": \"" << json_escape(manifest.position_key_format) << "\",\n";
     output << "  \"move_key_format\": \"" << json_escape(manifest.move_key_format) << "\",\n";
+    output << "  \"position_key_format_description\": \"" << json_escape(manifest.position_key_format_description) << "\",\n";
+    output << "  \"move_representation_description\": \"" << json_escape(manifest.move_representation_description) << "\",\n";
     output << "  \"planner_target_range_bytes\": " << manifest.planner_target_range_bytes << ",\n";
     output << "  \"planner_boundary_scan_bytes\": " << manifest.planner_boundary_scan_bytes << ",\n";
     output << "  \"planner_max_ranges\": " << manifest.planner_max_ranges << ",\n";
@@ -189,6 +227,9 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"aggregation_algorithm\": \"" << json_escape(manifest.aggregation_algorithm) << "\",\n";
     output << "  \"unique_positions_emitted\": " << manifest.unique_positions_emitted << ",\n";
     output << "  \"aggregate_move_entries_emitted\": " << manifest.aggregate_move_entries_emitted << ",\n";
+    output << "  \"total_accepted_games\": " << manifest.total_accepted_games << ",\n";
+    output << "  \"total_emitted_positions\": " << manifest.total_emitted_positions << ",\n";
+    output << "  \"total_emitted_move_entries\": " << manifest.total_emitted_move_entries << ",\n";
     output << "  \"raw_observations_emitted\": " << manifest.raw_observations_emitted << ",\n";
     output << "  \"min_position_count\": " << manifest.min_position_count << ",\n";
     output << "  \"sqlite_positions_rows\": " << manifest.sqlite_positions_rows << ",\n";

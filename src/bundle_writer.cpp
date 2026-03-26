@@ -125,6 +125,28 @@ BundleWriteResult write_bundle(
             const auto sqlite_stats = write_aggregate_payload_sqlite(data_dir / "corpus.sqlite", config, artifact_id, *aggregation_summary, *aggregate_positions);
             enriched_aggregation_summary.sqlite_positions_rows = sqlite_stats.positions_rows;
             enriched_aggregation_summary.sqlite_moves_rows = sqlite_stats.moves_rows;
+            enriched_aggregation_summary.sqlite_position_moves_rows = sqlite_stats.position_moves_rows;
+            manifest_aggregation_summary = &enriched_aggregation_summary;
+        } else if (config.payload_format == PayloadFormat::ExactSqliteV2Compact) {
+            const auto compact_stats = write_aggregate_payload_sqlite_compact_v2(data_dir / "corpus_compact.sqlite", config, artifact_id, *aggregation_summary, *aggregate_positions);
+            enriched_aggregation_summary.sqlite_positions_rows = compact_stats.positions_rows;
+            enriched_aggregation_summary.sqlite_moves_rows = compact_stats.moves_rows;
+            enriched_aggregation_summary.sqlite_position_moves_rows = compact_stats.position_moves_rows;
+            enriched_aggregation_summary.canonical_payload_file = "data/corpus_compact.sqlite";
+            if (std::filesystem::exists(data_dir / "corpus_compact.sqlite")) {
+                enriched_aggregation_summary.canonical_payload_size_bytes = std::filesystem::file_size(data_dir / "corpus_compact.sqlite");
+            }
+            if (config.emit_legacy_sqlite_mirror) {
+                BuildConfig legacy_config = config;
+                legacy_config.payload_format = PayloadFormat::Sqlite;
+                const auto legacy_stats = write_aggregate_payload_sqlite(data_dir / "corpus.sqlite", legacy_config, artifact_id, *aggregation_summary, *aggregate_positions);
+                enriched_aggregation_summary.compatibility_payload_file = "data/corpus.sqlite";
+                enriched_aggregation_summary.compatibility_mirror_emitted = true;
+                if (std::filesystem::exists(data_dir / "corpus.sqlite")) {
+                    enriched_aggregation_summary.compatibility_payload_size_bytes = std::filesystem::file_size(data_dir / "corpus.sqlite");
+                }
+                (void)legacy_stats;
+            }
             manifest_aggregation_summary = &enriched_aggregation_summary;
         } else {
             write_aggregate_jsonl_streaming(data_dir / "aggregated_position_move_counts.jsonl", *aggregate_positions, config);
