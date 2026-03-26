@@ -31,6 +31,7 @@ struct ManifestData {
     int retained_ply_depth = 0;
     int max_supported_player_moves = 0;
     std::string time_control_id;
+    std::vector<std::string> filtered_time_controls;
     int initial_time_seconds = 0;
     int increment_seconds = 0;
     std::string time_format_label;
@@ -63,6 +64,9 @@ struct ManifestData {
     int games_scanned = 0;
     int games_accepted = 0;
     int games_rejected = 0;
+    int games_rejected_by_rating_filter = 0;
+    int games_rejected_time_control_mismatch = 0;
+    int games_rejected_invalid_time_control = 0;
     int replay_attempts = 0;
     int replay_successes = 0;
     int replay_failures = 0;

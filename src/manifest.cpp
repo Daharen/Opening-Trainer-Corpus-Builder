@@ -46,6 +46,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.retained_ply_depth = config.retained_ply;
     manifest.max_supported_player_moves = config.retained_ply / 2;
     manifest.time_control_id = config.time_control_id;
+    manifest.filtered_time_controls = config.time_controls;
     manifest.initial_time_seconds = config.initial_time_seconds;
     manifest.increment_seconds = config.increment_seconds;
     manifest.time_format_label = config.time_format_label;
@@ -123,6 +124,9 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
         manifest.aggregate_move_entries_emitted = aggregation_summary->total_aggregate_move_entries_emitted;
         manifest.raw_observations_emitted = aggregation_summary->total_raw_observations_emitted;
         manifest.min_position_count = aggregation_summary->min_position_count;
+        manifest.games_rejected_by_rating_filter = aggregation_summary->games_rejected_by_rating_filter;
+        manifest.games_rejected_time_control_mismatch = aggregation_summary->games_rejected_by_time_control_filter;
+        manifest.games_rejected_invalid_time_control = aggregation_summary->games_rejected_invalid_time_control;
         manifest.payload_files.push_back("data/extracted_opening_sequences.jsonl");
         if (config.payload_format == PayloadFormat::Sqlite) {
             manifest.payload_files.push_back("data/corpus.sqlite");
@@ -174,6 +178,12 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"retained_ply_depth\": " << manifest.retained_ply_depth << ",\n";
     output << "  \"max_supported_player_moves\": " << manifest.max_supported_player_moves << ",\n";
     output << "  \"time_control_id\": \"" << json_escape(manifest.time_control_id) << "\",\n";
+    output << "  \"filtered_time_controls\": [";
+    for (std::size_t i = 0; i < manifest.filtered_time_controls.size(); ++i) {
+        output << "\"" << json_escape(manifest.filtered_time_controls[i]) << "\"";
+        if (i + 1 < manifest.filtered_time_controls.size()) output << ", ";
+    }
+    output << "],\n";
     output << "  \"initial_time_seconds\": " << manifest.initial_time_seconds << ",\n";
     output << "  \"increment_seconds\": " << manifest.increment_seconds << ",\n";
     output << "  \"time_format_label\": \"" << json_escape(manifest.time_format_label) << "\",\n";
@@ -206,6 +216,9 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"games_scanned\": " << manifest.games_scanned << ",\n";
     output << "  \"games_accepted\": " << manifest.games_accepted << ",\n";
     output << "  \"games_rejected\": " << manifest.games_rejected << ",\n";
+    output << "  \"games_rejected_by_rating_filter\": " << manifest.games_rejected_by_rating_filter << ",\n";
+    output << "  \"games_rejected_time_control_mismatch\": " << manifest.games_rejected_time_control_mismatch << ",\n";
+    output << "  \"games_rejected_invalid_time_control\": " << manifest.games_rejected_invalid_time_control << ",\n";
     output << "  \"replay_attempts\": " << manifest.replay_attempts << ",\n";
     output << "  \"replay_successes\": " << manifest.replay_successes << ",\n";
     output << "  \"replay_failures\": " << manifest.replay_failures << ",\n";
@@ -278,6 +291,13 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
     if (config.move_key_format.has_value()) output << "move key format: " << to_string(*config.move_key_format) << "\n";
     output << "min position count: " << config.min_position_count << "\n";
     output << "payload format: " << to_string(config.payload_format) << "\n";
+    if (!config.time_controls.empty()) {
+        output << "filtered time controls: ";
+        for (std::size_t i = 0; i < config.time_controls.size(); ++i) {
+            output << config.time_controls[i] << (i + 1 < config.time_controls.size() ? "," : "");
+        }
+        output << "\n";
+    }
     output << "payload path: " << (config.payload_format == PayloadFormat::Sqlite ? "data/corpus.sqlite" : "data/aggregated_position_move_counts.jsonl") << "\n";
     output << "planning completed successfully: " << (plan.planning_completed ? "yes" : "no") << "\n";
     if (plan.preflight_info) {

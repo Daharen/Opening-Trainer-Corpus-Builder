@@ -38,6 +38,11 @@ def main():
         "--position-key-format", "fen_normalized",
         "--move-key-format", "uci",
         "--payload-format", "sqlite",
+        "--time-controls", "600+0",
+        "--time-control-id", "600+0",
+        "--initial-time-seconds", "600",
+        "--increment-seconds", "0",
+        "--time-format-label", "Rapid",
     ]
     run(cmd)
 

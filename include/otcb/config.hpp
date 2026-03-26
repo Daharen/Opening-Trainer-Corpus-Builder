@@ -86,6 +86,7 @@ struct BuildConfig {
     int min_position_count = 1;
     PayloadFormat payload_format = PayloadFormat::Jsonl;
     bool emit_legacy_sqlite_mirror = true;
+    std::vector<std::string> time_controls;
     std::string time_control_id = "600+0";
     int initial_time_seconds = 600;
     int increment_seconds = 0;

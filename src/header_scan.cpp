@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 
@@ -131,7 +132,37 @@ HeaderScanClassification classify_headers(const BuildConfig& config, const Parse
     const int black = *headers.black_elo;
     const std::vector<EloRange> range{{config.min_rating, config.max_rating}};
     const bool accepted = rating_policy_match(white, black, *config.rating_policy, range);
-    return accepted ? HeaderScanClassification::Accepted : HeaderScanClassification::RejectedPolicyMismatch;
+    if (!accepted) {
+        return HeaderScanClassification::RejectedPolicyMismatch;
+    }
+
+    auto parse_exact_time_control = [](const std::optional<std::string>& raw) -> std::optional<std::string> {
+        if (!raw.has_value() || raw->empty()) {
+            return std::nullopt;
+        }
+        const std::string& value = *raw;
+        const std::size_t plus = value.find('+');
+        if (plus == std::string::npos || plus == 0 || plus + 1 >= value.size() || value.find('+', plus + 1) != std::string::npos) {
+            return std::nullopt;
+        }
+        for (std::size_t i = 0; i < value.size(); ++i) {
+            if (i == plus) continue;
+            if (!std::isdigit(static_cast<unsigned char>(value[i]))) return std::nullopt;
+        }
+        return value;
+    };
+
+    if (!config.time_controls.empty()) {
+        const auto parsed_time_control = parse_exact_time_control(headers.time_control);
+        if (!parsed_time_control.has_value()) {
+            return HeaderScanClassification::RejectedInvalidTimeControl;
+        }
+        const std::set<std::string> allowed(config.time_controls.begin(), config.time_controls.end());
+        if (!allowed.contains(*parsed_time_control)) {
+            return HeaderScanClassification::RejectedTimeControlMismatch;
+        }
+    }
+    return HeaderScanClassification::Accepted;
 }
 
 void increment_reason(std::map<std::string, int>& counts, const HeaderScanClassification classification) {

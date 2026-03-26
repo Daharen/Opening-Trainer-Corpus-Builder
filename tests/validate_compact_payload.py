@@ -73,6 +73,7 @@ def main():
         "--position-key-format", "fen_normalized",
         "--move-key-format", "uci",
         "--payload-format", "exact_sqlite_v2_compact",
+        "--time-controls", "600+0",
         "--time-control-id", "600+0",
         "--initial-time-seconds", "600",
         "--increment-seconds", "0",

@@ -15,6 +15,8 @@ enum class HeaderScanClassification {
     RejectedInvalidWhiteElo,
     RejectedInvalidBlackElo,
     RejectedPolicyMismatch,
+    RejectedInvalidTimeControl,
+    RejectedTimeControlMismatch,
     RejectedIncompleteHeaderBlock,
     RejectedIncompleteGameEnvelope,
     RejectedNonstandardOrUnsupportedHeaderShape,

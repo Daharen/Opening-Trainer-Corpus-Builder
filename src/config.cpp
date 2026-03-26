@@ -1,5 +1,6 @@
 #include "otcb/config.hpp"
 
+#include <cctype>
 #include <sstream>
 
 namespace otcb {
@@ -162,6 +163,9 @@ std::string derive_artifact_id(const BuildConfig& config) {
         builder << "_mk" << to_string(*config.move_key_format);
         builder << "_mpc" << config.min_position_count;
         builder << "_pf" << to_string(config.payload_format);
+        if (!config.time_controls.empty()) {
+            builder << "_tc" << config.time_controls.front();
+        }
     }
     return builder.str();
 }
@@ -244,6 +248,31 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     }
     if (config.time_format_label.empty()) {
         errors.emplace_back("--time-format-label must be non-empty.");
+    }
+    if (config.mode == BuildMode::AggregateCounts && config.time_controls.empty()) {
+        errors.emplace_back("--time-controls is required for aggregate-counts so exact corpus counts are truthfully single time-control scope.");
+    }
+    if (config.mode == BuildMode::AggregateCounts && config.time_controls.size() != 1) {
+        errors.emplace_back("--time-controls currently requires exactly one exact time control for final corpus bundle generation.");
+    }
+    auto is_exact_time_control = [](const std::string& value) {
+        const std::size_t plus = value.find('+');
+        if (plus == std::string::npos || plus == 0 || plus + 1 >= value.size() || value.find('+', plus + 1) != std::string::npos) {
+            return false;
+        }
+        for (std::size_t i = 0; i < value.size(); ++i) {
+            if (i == plus) continue;
+            if (!std::isdigit(static_cast<unsigned char>(value[i]))) return false;
+        }
+        return true;
+    };
+    for (const auto& tc : config.time_controls) {
+        if (!is_exact_time_control(tc)) {
+            errors.emplace_back("--time-controls contains invalid exact control '" + tc + "'; expected strict initial+increment form such as 600+0.");
+        }
+    }
+    if (config.mode == BuildMode::AggregateCounts && config.time_controls.size() == 1 && config.time_control_id != config.time_controls.front()) {
+        errors.emplace_back("--time-control-id must exactly match the single --time-controls value for truthful canonical metadata.");
     }
 
     return errors;
