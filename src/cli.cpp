@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace otcb {
 namespace {
@@ -39,6 +40,27 @@ std::string require_value(int argc, char** argv, int& index, const std::string& 
     }
     ++index;
     return argv[index];
+}
+
+std::vector<std::string> parse_csv_list(const std::string& value) {
+    std::vector<std::string> items;
+    std::string current;
+    for (const char ch : value) {
+        if (ch == ',') {
+            if (!current.empty()) {
+                items.push_back(current);
+                current.clear();
+            }
+            continue;
+        }
+        if (ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r') {
+            current.push_back(ch);
+        }
+    }
+    if (!current.empty()) {
+        items.push_back(current);
+    }
+    return items;
 }
 
 }  // namespace
@@ -131,6 +153,7 @@ CliParseResult parse_cli(int argc, char** argv) {
                 continue;
             }
             if (arg == "--no-legacy-sqlite-mirror") { result.config.emit_legacy_sqlite_mirror = false; continue; }
+            if (arg == "--time-controls") { result.config.time_controls = parse_csv_list(require_value(argc, argv, index, arg)); continue; }
             if (arg == "--time-control-id") { result.config.time_control_id = require_value(argc, argv, index, arg); continue; }
             if (arg == "--initial-time-seconds") { result.config.initial_time_seconds = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
             if (arg == "--increment-seconds") { result.config.increment_seconds = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
@@ -193,6 +216,7 @@ void print_usage(std::ostream& stream, const std::string& program_name) {
         << "  --min-position-count <int>              Filter aggregated positions after counting. Must be >= 1.\n"
         << "  --payload-format <jsonl|sqlite|exact_sqlite_v2_compact>  Aggregate payload encoding. Default: jsonl. Only valid for aggregate-counts.\n"
         << "  --no-legacy-sqlite-mirror               Disable transitional legacy data/corpus.sqlite mirror when using compact v2 payload.\n"
+        << "  --time-controls <value[,value...]>      Exact PGN TimeControl filter(s) enforced during ingestion for aggregate-counts (for example, 600+0).\n"
         << "  --time-control-id <value>               Canonical time-control contract id (for example, 600+0).\n"
         << "  --initial-time-seconds <int>            Canonical initial clock time in seconds.\n"
         << "  --increment-seconds <int>               Canonical increment in seconds.\n"

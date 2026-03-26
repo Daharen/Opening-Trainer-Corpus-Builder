@@ -16,6 +16,10 @@ std::string to_string(const HeaderScanClassification classification) {
             return "rejected_invalid_black_elo";
         case HeaderScanClassification::RejectedPolicyMismatch:
             return "rejected_policy_mismatch";
+        case HeaderScanClassification::RejectedInvalidTimeControl:
+            return "rejected_invalid_time_control";
+        case HeaderScanClassification::RejectedTimeControlMismatch:
+            return "rejected_time_control_mismatch";
         case HeaderScanClassification::RejectedIncompleteHeaderBlock:
             return "rejected_incomplete_header_block";
         case HeaderScanClassification::RejectedIncompleteGameEnvelope:

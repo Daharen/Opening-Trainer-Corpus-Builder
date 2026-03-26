@@ -37,6 +37,9 @@ struct AggregationSummary {
     int total_ranges_executed = 0;
     int total_games_scanned = 0;
     int total_games_accepted_upstream = 0;
+    int games_rejected_by_rating_filter = 0;
+    int games_rejected_by_time_control_filter = 0;
+    int games_rejected_invalid_time_control = 0;
     int total_replay_attempts = 0;
     int total_replay_successes = 0;
     int total_extracted_ply_events_consumed = 0;

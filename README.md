@@ -4,7 +4,7 @@ This repository contains the first runnable C++ baseline for the corpus builder 
 
 ## Supported modes
 
-The builder supports deterministic scaffold emission, source preflight, range planning, header-only scanning via `--mode scan-headers`, opening extraction, and aggregate raw-count generation. Aggregate mode now supports `--payload-format <jsonl|sqlite>` with `jsonl` as the backward-compatible default.
+The builder supports deterministic scaffold emission, source preflight, range planning, header-only scanning via `--mode scan-headers`, opening extraction, and aggregate raw-count generation. Aggregate mode now supports `--payload-format <jsonl|sqlite|exact_sqlite_v2_compact>`.
 
 Generated bundles can include:
 
@@ -33,6 +33,21 @@ Aggregate mode now supports `--payload-format exact_sqlite_v2_compact` as the ca
 
 Manifest contract fields are now canonical corpus truth for retained depth, rating policy/band, exact time control and clocks, and payload identity:
 `retained_ply_depth`, `max_supported_player_moves`, `rating_lower_bound`, `rating_upper_bound`, `rating_policy`, `target_rating_band`, `time_control_id`, `initial_time_seconds`, `increment_seconds`, `time_format_label`, `payload_format`, `payload_version`, and dual-emission compatibility fields.
+
+## Exact aggregate-count time-control filtering (truthful single-scope corpora)
+
+`--mode aggregate-counts` now enforces real ingestion-time exact `TimeControl` filtering with `--time-controls`.
+
+- Required for aggregate-counts: `--time-controls <exact_control>` (for example `600+0`, `300+0`, `120+1`).
+- Matching is exact (`600+0` matches only `600+0`).
+- Missing or malformed `TimeControl` headers are rejected for exact-filtered builds.
+- `time_format_label` is display metadata only; it is not used as a filter key.
+- Metadata-only stamping is blocked: aggregate builds fail if `--time-controls` is omitted.
+
+Manifest and summaries now include explicit provenance and counters such as:
+`filtered_time_controls`, `games_rejected_time_control_mismatch`, and `games_rejected_invalid_time_control`.
+
+This makes final compact exact corpora truthful single-scope bundles prior to mass catalog/background generation.
 
 Inspector/export tooling:
 

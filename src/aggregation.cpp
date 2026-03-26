@@ -49,6 +49,19 @@ AggregationResult aggregate_counts(const BuildConfig& config, const SourcePrefli
     result.summary.total_ranges_executed = result.extraction_result.summary.total_ranges_executed;
     result.summary.total_games_scanned = result.extraction_result.summary.total_games_scanned;
     result.summary.total_games_accepted_upstream = result.extraction_result.summary.total_games_accepted_upstream;
+    const auto& rejection_counts = result.extraction_result.scan_result.summary.global_rejection_counts;
+    auto rejection_value = [&](const std::string& key) {
+        const auto it = rejection_counts.find(key);
+        return it == rejection_counts.end() ? 0 : it->second;
+    };
+    result.summary.games_rejected_by_rating_filter =
+        rejection_value("rejected_missing_white_elo") +
+        rejection_value("rejected_missing_black_elo") +
+        rejection_value("rejected_invalid_white_elo") +
+        rejection_value("rejected_invalid_black_elo") +
+        rejection_value("rejected_policy_mismatch");
+    result.summary.games_rejected_by_time_control_filter = rejection_value("rejected_time_control_mismatch");
+    result.summary.games_rejected_invalid_time_control = rejection_value("rejected_invalid_time_control");
     result.summary.total_replay_attempts = result.extraction_result.summary.total_replay_attempts;
     result.summary.total_replay_successes = result.extraction_result.summary.total_replay_successes;
     result.summary.min_position_count = config.min_position_count;
@@ -247,6 +260,9 @@ std::string render_aggregation_summary_json(const AggregationSummary& summary) {
         << "  \"total_ranges_executed\": " << summary.total_ranges_executed << ",\n"
         << "  \"total_games_scanned\": " << summary.total_games_scanned << ",\n"
         << "  \"total_games_accepted_upstream\": " << summary.total_games_accepted_upstream << ",\n"
+        << "  \"games_rejected_by_rating_filter\": " << summary.games_rejected_by_rating_filter << ",\n"
+        << "  \"games_rejected_by_time_control_filter\": " << summary.games_rejected_by_time_control_filter << ",\n"
+        << "  \"games_rejected_invalid_time_control\": " << summary.games_rejected_invalid_time_control << ",\n"
         << "  \"total_replay_attempts\": " << summary.total_replay_attempts << ",\n"
         << "  \"total_replay_successes\": " << summary.total_replay_successes << ",\n"
         << "  \"total_extracted_ply_events_consumed\": " << summary.total_extracted_ply_events_consumed << ",\n"
@@ -285,6 +301,9 @@ std::string render_aggregation_summary_text(const BuildConfig& config, const Agg
     out << "payload format: " << summary.payload_format << "\n";
     out << "payload path: " << summary.payload_path << "\n";
     out << "total accepted games: " << summary.total_games_accepted_upstream << "\n";
+    out << "games rejected by rating filter: " << summary.games_rejected_by_rating_filter << "\n";
+    out << "games rejected by time-control mismatch: " << summary.games_rejected_by_time_control_filter << "\n";
+    out << "games rejected by invalid/missing time-control: " << summary.games_rejected_invalid_time_control << "\n";
     out << "total replay successes: " << summary.total_replay_successes << "\n";
     out << "total extracted ply events consumed: " << summary.total_extracted_ply_events_consumed << "\n";
     out << "total unique positions emitted: " << summary.total_unique_positions_emitted << "\n";
