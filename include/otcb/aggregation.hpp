@@ -53,6 +53,12 @@ struct AggregationSummary {
     std::string payload_path;
     int sqlite_positions_rows = 0;
     int sqlite_moves_rows = 0;
+    int sqlite_position_moves_rows = 0;
+    std::string canonical_payload_file;
+    std::string compatibility_payload_file;
+    bool compatibility_mirror_emitted = false;
+    std::uint64_t canonical_payload_size_bytes = 0;
+    std::uint64_t compatibility_payload_size_bytes = 0;
     std::vector<std::string> notes;
 };
 

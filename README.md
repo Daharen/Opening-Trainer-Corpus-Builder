@@ -21,6 +21,26 @@ Generated bundles can include:
 Use `--help` to see the full CLI surface, including explicit rating-policy semantics and the honesty note that move replay/final corpus payload emission are still deferred.
 
 
+
+## Compact Exact Payload v2 (lossless)
+
+Aggregate mode now supports `--payload-format exact_sqlite_v2_compact` as the canonical compact exact runtime payload.
+
+- Canonical output: `data/corpus_compact.sqlite`
+- Transitional dual-emission: compatibility mirror `data/corpus.sqlite` is emitted by default (disable with `--no-legacy-sqlite-mirror`).
+- Compact schema is lossless and explainable: `positions` (compact key + inspect key), `moves` (move dictionary), `position_moves` (raw counts).
+- SAN is not stored in compact hot runtime rows; SAN is regenerated on demand via `inspect-compact-corpus`.
+
+Manifest contract fields are now canonical corpus truth for retained depth, rating policy/band, exact time control and clocks, and payload identity:
+`retained_ply_depth`, `max_supported_player_moves`, `rating_lower_bound`, `rating_upper_bound`, `rating_policy`, `target_rating_band`, `time_control_id`, `initial_time_seconds`, `increment_seconds`, `time_format_label`, `payload_format`, `payload_version`, and dual-emission compatibility fields.
+
+Inspector/export tooling:
+
+```bash
+inspect-compact-corpus --bundle /path/to/bundle --moves e2e4,e7e5 --show-san
+inspect-compact-corpus --bundle /path/to/bundle --position-key "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
+```
+
 ## SQLite dependency model
 
 SQLite aggregate payload output is wired through a repo-local dependency path by default.

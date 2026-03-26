@@ -135,6 +135,23 @@ endif()
 
 target_link_libraries(build-timing-conditioned-corpus-bundle PRIVATE ${OTCB_SQLITE_TARGET})
 
+add_executable(inspect-compact-corpus
+    src/inspect_compact_payload_main.cpp
+    src/chess_types.cpp
+    src/chess_board.cpp
+    src/position_key.cpp
+)
+target_include_directories(inspect-compact-corpus
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(MSVC)
+    target_compile_options(inspect-compact-corpus PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(inspect-compact-corpus PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+target_link_libraries(inspect-compact-corpus PRIVATE ${OTCB_SQLITE_TARGET})
+
 if(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD)
     find_package(zstd QUIET CONFIG)
     if(TARGET zstd::libzstd_shared)
@@ -169,6 +186,13 @@ if(BUILD_TESTING)
         NAME jsonl_aggregate_payload_validation
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_jsonl_payload.py
                 $<TARGET_FILE:opening-trainer-corpus-builder> ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME compact_sqlite_payload_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_compact_payload.py
+                $<TARGET_FILE:opening-trainer-corpus-builder>
+                $<TARGET_FILE:inspect-compact-corpus>
+                ${CMAKE_CURRENT_SOURCE_DIR}
     )
     add_test(
         NAME behavioral_extract_validation

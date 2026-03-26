@@ -16,6 +16,7 @@ namespace otcb {
 struct ManifestData {
     std::string artifact_schema_version;
     std::string artifact_id;
+    std::string builder_repo_commit;
     std::string builder_mode;
     std::string build_status;
     std::string source_corpus_identity;
@@ -27,6 +28,17 @@ struct ManifestData {
     int rating_upper_bound = 0;
     std::string rating_policy;
     int retained_opening_ply = 0;
+    int retained_ply_depth = 0;
+    int max_supported_player_moves = 0;
+    std::string time_control_id;
+    int initial_time_seconds = 0;
+    int increment_seconds = 0;
+    std::string time_format_label;
+    std::string payload_version;
+    std::string payload_format_canonical;
+    std::string compatibility_payload_format;
+    bool compatibility_payload_emitted = false;
+    bool compatibility_payload_semantics_identical = false;
     int threads = 0;
     int max_games = 0;
     int progress_interval = 0;
@@ -39,6 +51,8 @@ struct ManifestData {
     std::string payload_format;
     std::string position_key_format;
     std::string move_key_format;
+    std::string position_key_format_description;
+    std::string move_representation_description;
     std::uint64_t planner_target_range_bytes = 0;
     std::uint64_t planner_boundary_scan_bytes = 0;
     int planner_max_ranges = 0;
@@ -72,6 +86,9 @@ struct ManifestData {
     std::map<std::string, int> eligibility_counts;
     int unique_positions_emitted = 0;
     int aggregate_move_entries_emitted = 0;
+    int total_accepted_games = 0;
+    int total_emitted_positions = 0;
+    int total_emitted_move_entries = 0;
     int raw_observations_emitted = 0;
     int min_position_count = 0;
     int sqlite_positions_rows = 0;

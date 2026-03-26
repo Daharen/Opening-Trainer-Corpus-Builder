@@ -123,6 +123,8 @@ std::string to_string(const PayloadFormat format) {
             return "jsonl";
         case PayloadFormat::Sqlite:
             return "sqlite";
+        case PayloadFormat::ExactSqliteV2Compact:
+            return "exact_sqlite_v2_compact";
     }
     return "unknown";
 }
@@ -133,6 +135,9 @@ std::optional<PayloadFormat> parse_payload_format(const std::string& value) {
     }
     if (value == "sqlite") {
         return PayloadFormat::Sqlite;
+    }
+    if (value == "exact_sqlite_v2_compact") {
+        return PayloadFormat::ExactSqliteV2Compact;
     }
     return std::nullopt;
 }
@@ -227,6 +232,18 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     }
     if (config.mode != BuildMode::AggregateCounts && config.payload_format != PayloadFormat::Jsonl) {
         errors.emplace_back("--payload-format currently only supports aggregate-counts mode.");
+    }
+    if (config.initial_time_seconds <= 0) {
+        errors.emplace_back("--initial-time-seconds must be greater than 0.");
+    }
+    if (config.increment_seconds < 0) {
+        errors.emplace_back("--increment-seconds must be greater than or equal to 0.");
+    }
+    if (config.time_control_id.empty()) {
+        errors.emplace_back("--time-control-id must be non-empty.");
+    }
+    if (config.time_format_label.empty()) {
+        errors.emplace_back("--time-format-label must be non-empty.");
     }
 
     return errors;
