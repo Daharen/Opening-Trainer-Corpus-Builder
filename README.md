@@ -190,7 +190,8 @@ Supported options:
 
 - `manifest.json`: stable audit surface that records exact corpus identity, profile-set identity,
   compatibility warnings, context contract version, timing overlay policy version, deterministic
-  timestamp metadata, trainer-compatibility legacy fields, and payload references.
+  timestamp metadata, trainer-compatibility legacy fields, payload references, and explicit timing
+  ELO-band dual-contract metadata.
 - `data/corpus.sqlite`: trainer-compatible exact corpus payload path (primary runtime path).
 - `data/exact_corpus.sqlite`: optional audit-friendly alias copy of exact corpus payload.
 - `data/behavioral_profile_set.sqlite`: authoritative Behavioral Profile Set SQLite audit artifact.
@@ -198,6 +199,23 @@ Supported options:
   `behavioral_profile_set.sqlite` with:
   `context_contract_version`, `timing_overlay_policy_version`, `move_pressure_profiles`,
   `think_time_profiles`, and `context_profile_map`.
+
+Timing-conditioned bundles now explicitly preserve two distinct band concepts:
+- **display/filter band** (`--elo-bands` / corpus-facing interval such as `400-600`),
+- **canonical runtime bucket band** (profile-map vocabulary such as `400-599` and `600-799`).
+
+The emitter preserves canonical context keys and additionally exports deterministic alias keys in
+`timing_overlay.json` for every display/filter band that overlaps a canonical runtime bucket.
+Example: `400-600` overlaps both `400-599` and `600-799` (because 600 is inclusive), so both
+canonical contexts are alias-addressable via `...|400-600|...`.
+
+`manifest.json` now documents this behavior with:
+- `timing_runtime_elo_band_policy_version`
+- `timing_runtime_elo_band_vocabulary`
+- `timing_display_elo_band`
+- `timing_display_to_runtime_elo_band_aliases`
+- `timing_overlay_alias_mode`
+- `timing_overlay_alias_conflicts`
 
 For current trainer compatibility, `manifest.json` now emits legacy aggregate-bundle fields
 (`build_status`, `payload_format`, `position_key_format`, `move_key_format`,
