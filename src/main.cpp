@@ -7,6 +7,7 @@
 #include "otcb/header_scan.hpp"
 #include "otcb/opening_extraction.hpp"
 #include "otcb/preflight.hpp"
+#include "otcb/predecessor_master.hpp"
 #include "otcb/progress.hpp"
 #include "otcb/range_plan.hpp"
 
@@ -27,7 +28,9 @@ int main(int argc, char** argv) {
         return parsed.exit_code;
     }
 
-    const auto artifact_id = parsed.config.artifact_id.value_or(otcb::derive_artifact_id(parsed.config));
+    const auto artifact_id = parsed.config.mode == otcb::BuildMode::BuildPredecessorMaster
+                                 ? std::string("predecessor-master-merge")
+                                 : parsed.config.artifact_id.value_or(otcb::derive_artifact_id(parsed.config));
     otcb::ProgressReporter reporter({
         .quiet = parsed.config.quiet_progress,
         .emit_progress_log = parsed.config.emit_progress_log,
@@ -38,6 +41,17 @@ int main(int argc, char** argv) {
     reporter.start();
 
     try {
+        if (parsed.config.mode == otcb::BuildMode::BuildPredecessorMaster) {
+            const auto result = otcb::build_predecessor_master(parsed.config, &reporter);
+            std::cout << "Predecessor master sqlite written to: " << result.master_output.lexically_normal().generic_string() << '\n';
+            std::cout << "Sources processed: " << result.total_sources << '\n';
+            std::cout << "Rows scanned: " << result.rows_scanned << '\n';
+            std::cout << "Rows inserted: " << result.rows_inserted << '\n';
+            std::cout << "Rows skipped_existing: " << result.rows_skipped_existing << '\n';
+            reporter.finish();
+            return 0;
+        }
+
         if (parsed.config.mode == otcb::BuildMode::DryRun) {
             const auto result = otcb::write_dry_run_bundle(parsed.config, &reporter);
             std::cout << "Scaffold artifact bundle written to: " << result.bundle_root.lexically_normal().generic_string() << '\n';

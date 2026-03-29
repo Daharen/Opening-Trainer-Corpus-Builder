@@ -22,6 +22,7 @@ enum class BuildMode {
     ScanHeaders,
     ExtractOpenings,
     AggregateCounts,
+    BuildPredecessorMaster,
 };
 
 enum class PositionKeyFormat {
@@ -96,6 +97,12 @@ struct BuildConfig {
     bool emit_progress_log = false;
     bool emit_status_json = false;
     bool quiet_progress = false;
+    std::vector<std::filesystem::path> source_predecessors;
+    std::optional<std::filesystem::path> source_list_file;
+    std::filesystem::path master_output;
+    bool delete_source_after_merge = false;
+    int merge_batch_size = 1000;
+    bool skip_integrity_check = false;
 };
 
 std::string derive_artifact_id(const BuildConfig& config);
