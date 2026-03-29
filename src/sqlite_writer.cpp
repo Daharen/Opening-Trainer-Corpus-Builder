@@ -392,4 +392,107 @@ SqliteWriteStats write_aggregate_payload_sqlite_compact_v2(const std::filesystem
     }
 }
 
+CanonicalPredecessorSqliteWriteStats write_canonical_predecessor_payload_sqlite(
+    const std::filesystem::path& sqlite_path,
+    const BuildConfig& config,
+    const std::string& artifact_id,
+    const AggregationSummary& summary,
+    const std::vector<CanonicalPredecessorRecord>& predecessors) {
+    if (std::filesystem::exists(sqlite_path)) {
+        std::filesystem::remove(sqlite_path);
+    }
+    SqliteDb db(sqlite_path);
+    exec_sql(db.get(), "PRAGMA foreign_keys = ON;");
+    exec_sql(db.get(), "BEGIN TRANSACTION;");
+    try {
+        exec_sql(db.get(),
+                 "CREATE TABLE artifact_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+                 "CREATE TABLE positions("
+                 "position_id INTEGER PRIMARY KEY,"
+                 "position_key TEXT NOT NULL UNIQUE,"
+                 "side_to_move TEXT NOT NULL,"
+                 "depth_from_root INTEGER NOT NULL"
+                 ");"
+                 "CREATE TABLE canonical_predecessors("
+                 "child_position_id INTEGER PRIMARY KEY,"
+                 "parent_position_id INTEGER,"
+                 "incoming_move_uci TEXT,"
+                 "edge_support_count INTEGER NOT NULL,"
+                 "selection_policy_version TEXT NOT NULL,"
+                 "FOREIGN KEY(child_position_id) REFERENCES positions(position_id),"
+                 "FOREIGN KEY(parent_position_id) REFERENCES positions(position_id)"
+                 ");");
+        Statement metadata_stmt(db.get(), "INSERT INTO artifact_metadata(key, value) VALUES (?, ?);");
+        Statement position_stmt(db.get(), "INSERT INTO positions(position_key, side_to_move, depth_from_root) VALUES (?, ?, ?);");
+        Statement predecessor_stmt(db.get(), "INSERT INTO canonical_predecessors(child_position_id, parent_position_id, incoming_move_uci, edge_support_count, selection_policy_version) VALUES (?, ?, ?, ?, ?);");
+        Statement position_id_stmt(db.get(), "SELECT position_id FROM positions WHERE position_key = ?;");
+
+        const std::vector<std::pair<std::string, std::string>> metadata = {
+            {"artifact_schema_version", "otcb_canonical_predecessors_v1"},
+            {"artifact_id", artifact_id},
+            {"payload_type", "canonical_predecessor_edges"},
+            {"payload_format", "sqlite"},
+            {"source_path", summary.source_path},
+            {"min_rating", std::to_string(config.min_rating)},
+            {"max_rating", std::to_string(config.max_rating)},
+            {"rating_policy", to_string(*config.rating_policy)},
+            {"retained_ply", std::to_string(config.retained_ply)},
+            {"selection_policy_version", "canonical_predecessor_policy_v1"},
+            {"single_parent_per_position", "true"},
+        };
+        for (const auto& [key, value] : metadata) {
+            bind_text(metadata_stmt.get(), 1, key);
+            bind_text(metadata_stmt.get(), 2, value);
+            step_expect_done(db.get(), metadata_stmt.get());
+            reset_statement(metadata_stmt.get());
+        }
+
+        CanonicalPredecessorSqliteWriteStats stats;
+        for (const auto& record : predecessors) {
+            bind_text(position_stmt.get(), 1, record.position_key);
+            bind_text(position_stmt.get(), 2, record.side_to_move);
+            bind_int(position_stmt.get(), 3, record.depth_from_root);
+            step_expect_done(db.get(), position_stmt.get());
+            reset_statement(position_stmt.get());
+            ++stats.positions_rows;
+        }
+
+        auto lookup_position_id = [&](const std::string& position_key) {
+            bind_text(position_id_stmt.get(), 1, position_key);
+            const int rc = sqlite3_step(position_id_stmt.get());
+            if (rc != SQLITE_ROW) {
+                reset_statement(position_id_stmt.get());
+                throw std::runtime_error("Failed to resolve position_id for canonical predecessor payload");
+            }
+            const int position_id = sqlite3_column_int(position_id_stmt.get(), 0);
+            reset_statement(position_id_stmt.get());
+            return position_id;
+        };
+
+        for (const auto& record : predecessors) {
+            bind_int(predecessor_stmt.get(), 1, lookup_position_id(record.position_key));
+            if (record.parent_position_key.has_value()) {
+                bind_int(predecessor_stmt.get(), 2, lookup_position_id(*record.parent_position_key));
+            } else if (sqlite3_bind_null(predecessor_stmt.get(), 2) != SQLITE_OK) {
+                throw std::runtime_error("Failed to bind null parent_position_id");
+            }
+            if (record.incoming_move_uci.has_value()) {
+                bind_text(predecessor_stmt.get(), 3, *record.incoming_move_uci);
+            } else if (sqlite3_bind_null(predecessor_stmt.get(), 3) != SQLITE_OK) {
+                throw std::runtime_error("Failed to bind null incoming_move_uci");
+            }
+            bind_int(predecessor_stmt.get(), 4, record.edge_support_count);
+            bind_text(predecessor_stmt.get(), 5, record.selection_policy_version);
+            step_expect_done(db.get(), predecessor_stmt.get());
+            reset_statement(predecessor_stmt.get());
+            ++stats.canonical_predecessor_rows;
+        }
+        exec_sql(db.get(), "COMMIT;");
+        return stats;
+    } catch (...) {
+        exec_sql(db.get(), "ROLLBACK;");
+        throw;
+    }
+}
+
 }  // namespace otcb

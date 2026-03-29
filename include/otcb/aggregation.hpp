@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <optional>
 #include <vector>
 
 #include "otcb/config.hpp"
@@ -44,6 +45,8 @@ struct AggregationSummary {
     int total_replay_successes = 0;
     int total_extracted_ply_events_consumed = 0;
     int total_unique_positions_emitted = 0;
+    int unique_child_positions_with_predecessor_candidates = 0;
+    int canonical_predecessor_edges_emitted = 0;
     int total_aggregate_move_entries_emitted = 0;
     int total_raw_observations_emitted = 0;
     int min_position_count = 0;
@@ -62,13 +65,30 @@ struct AggregationSummary {
     bool compatibility_mirror_emitted = false;
     std::uint64_t canonical_payload_size_bytes = 0;
     std::uint64_t compatibility_payload_size_bytes = 0;
+    std::string canonical_predecessor_payload_file;
+    std::string canonical_predecessor_payload_format;
+    std::string canonical_predecessor_payload_contract_version;
+    std::string canonical_predecessor_selection_policy;
+    bool canonical_predecessor_emitted = false;
+    bool canonical_predecessor_single_parent_per_position = true;
     std::vector<std::string> notes;
+};
+
+struct CanonicalPredecessorRecord {
+    std::string position_key;
+    std::string side_to_move;
+    int depth_from_root = 0;
+    std::optional<std::string> parent_position_key;
+    std::optional<std::string> incoming_move_uci;
+    int edge_support_count = 0;
+    std::string selection_policy_version;
 };
 
 struct AggregationResult {
     ExtractionResult extraction_result;
     AggregationSummary summary;
     std::vector<AggregatedPositionRecord> positions;
+    std::vector<CanonicalPredecessorRecord> canonical_predecessors;
     std::vector<AggregatedPositionRecord> preview_rows;
 };
 

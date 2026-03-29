@@ -32,6 +32,18 @@ struct MutablePositionAggregate {
     std::map<std::string, AggregatedMoveCount> moves;
 };
 
+struct PredecessorCandidateAggregate {
+    std::string parent_position_key;
+    std::string incoming_move_uci;
+    int depth_from_root = 0;
+    int edge_support_count = 0;
+};
+
+struct PositionContext {
+    int depth_from_root = 0;
+    std::string side_to_move;
+};
+
 }  // namespace
 
 AggregationResult aggregate_counts(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, ProgressReporter* progress) {
@@ -90,44 +102,23 @@ AggregationResult aggregate_counts(const BuildConfig& config, const SourcePrefli
     }
 
     std::map<std::string, MutablePositionAggregate> aggregated;
+    std::map<std::string, std::vector<PredecessorCandidateAggregate>> predecessor_candidates_by_child;
+    std::map<std::string, PositionContext> position_context_by_key;
+    const std::string selection_policy_version = "canonical_predecessor_policy_v1";
     for (const auto& sequence : result.extraction_result.sequences) {
+        ChessBoard board;
+        auto root_it = position_context_by_key.find(make_position_key(board, *config.position_key_format));
+        if (root_it == position_context_by_key.end()) {
+            position_context_by_key.emplace(
+                make_position_key(board, *config.position_key_format),
+                PositionContext{.depth_from_root = 0, .side_to_move = "white"});
+        }
         for (const auto& event : sequence.ply_events) {
             if (!event.uci.has_value() || !event.fen_before.has_value()) {
                 continue;
             }
-            ChessBoard board;
-            // Reconstruct up to this point via stored FEN semantics already produced by replay.
-            // For this lane the replay pipeline always stores fen_before for extracted events.
-            // We only need the board for normalized key rendering, so replay the event FEN by reusing stored board text when full format is chosen.
-            // Since the board implementation does not parse FEN, rebuild by replaying the sequence prefix.
-            // Deterministic cost is bounded by retained_ply and accepted games.
-            ChessBoard prefix_board;
-            for (const auto& prefix_event : sequence.ply_events) {
-                if (prefix_event.ply_index == event.ply_index) {
-                    break;
-                }
-                const auto resolved = prefix_event.uci.value();
-                Move move{};
-                move.from = square_from_string(resolved.substr(0, 2));
-                move.to = square_from_string(resolved.substr(2, 2));
-                move.promotion = resolved.size() == 5 ? *piece_type_from_san_letter(static_cast<char>(std::toupper(static_cast<unsigned char>(resolved[4])))) : PieceType::None;
-                const Piece moving_piece = prefix_board.piece_at(move.from);
-                move.piece = moving_piece.type;
-                move.is_capture = !prefix_board.piece_at(move.to).is_none();
-                if (moving_piece.type == PieceType::Pawn && prefix_board.en_passant_target().has_value() && *prefix_board.en_passant_target() == move.to && prefix_board.piece_at(move.to).is_none() && (move.from % 8 != move.to % 8)) {
-                    move.is_capture = true;
-                    move.is_en_passant = true;
-                }
-                move.is_castling_kingside = moving_piece.type == PieceType::King && move.from == 4 && move.to == 6;
-                move.is_castling_queenside = moving_piece.type == PieceType::King && move.from == 4 && move.to == 2;
-                if (moving_piece.color == Color::Black && moving_piece.type == PieceType::King) {
-                    move.is_castling_kingside = move.from == 60 && move.to == 62;
-                    move.is_castling_queenside = move.from == 60 && move.to == 58;
-                }
-                prefix_board.apply_move(move);
-            }
-            const std::string position_key = make_position_key(prefix_board, *config.position_key_format);
-            auto& position = aggregated[position_key];
+            const std::string parent_position_key = make_position_key(board, *config.position_key_format);
+            auto& position = aggregated[parent_position_key];
             if (position.side_to_move.empty()) {
                 position.side_to_move = event.side_to_move_before;
             }
@@ -137,6 +128,47 @@ AggregationResult aggregate_counts(const BuildConfig& config, const SourcePrefli
             ++move_count.raw_count;
             if (config.payload_format != PayloadFormat::ExactSqliteV2Compact && move_count.example_san.empty()) {
                 move_count.example_san = event.san;
+            }
+
+            Move move{};
+            move.from = square_from_string(event.uci->substr(0, 2));
+            move.to = square_from_string(event.uci->substr(2, 2));
+            move.promotion = event.uci->size() == 5 ? *piece_type_from_san_letter(static_cast<char>(std::toupper(static_cast<unsigned char>((*event.uci)[4])))) : PieceType::None;
+            const Piece moving_piece = board.piece_at(move.from);
+            move.piece = moving_piece.type;
+            move.is_capture = !board.piece_at(move.to).is_none();
+            if (moving_piece.type == PieceType::Pawn && board.en_passant_target().has_value() && *board.en_passant_target() == move.to && board.piece_at(move.to).is_none() && (move.from % 8 != move.to % 8)) {
+                move.is_capture = true;
+                move.is_en_passant = true;
+            }
+            move.is_castling_kingside = moving_piece.type == PieceType::King && move.from == 4 && move.to == 6;
+            move.is_castling_queenside = moving_piece.type == PieceType::King && move.from == 4 && move.to == 2;
+            if (moving_piece.color == Color::Black && moving_piece.type == PieceType::King) {
+                move.is_castling_kingside = move.from == 60 && move.to == 62;
+                move.is_castling_queenside = move.from == 60 && move.to == 58;
+            }
+            board.apply_move(move);
+
+            const std::string child_position_key = make_position_key(board, *config.position_key_format);
+            const int child_depth = event.ply_index;
+            auto& child_context = position_context_by_key[child_position_key];
+            if (child_context.side_to_move.empty() || child_depth < child_context.depth_from_root) {
+                child_context.depth_from_root = child_depth;
+                child_context.side_to_move = board.side_to_move() == Color::White ? "white" : "black";
+            }
+            auto& candidates = predecessor_candidates_by_child[child_position_key];
+            auto candidate_it = std::find_if(candidates.begin(), candidates.end(), [&](const PredecessorCandidateAggregate& entry) {
+                return entry.parent_position_key == parent_position_key && entry.incoming_move_uci == *event.uci && entry.depth_from_root == child_depth;
+            });
+            if (candidate_it == candidates.end()) {
+                candidates.push_back(PredecessorCandidateAggregate{
+                    .parent_position_key = parent_position_key,
+                    .incoming_move_uci = *event.uci,
+                    .depth_from_root = child_depth,
+                    .edge_support_count = 1,
+                });
+            } else {
+                ++candidate_it->edge_support_count;
             }
             ++result.summary.total_extracted_ply_events_consumed;
             if (progress) {
@@ -149,6 +181,69 @@ AggregationResult aggregate_counts(const BuildConfig& config, const SourcePrefli
                 });
             }
         }
+    }
+    result.summary.unique_child_positions_with_predecessor_candidates = static_cast<int>(predecessor_candidates_by_child.size());
+    if (config.emit_canonical_predecessors) {
+        if (progress) {
+            progress->note_event("canonical predecessor reduction started");
+        }
+        const std::string root_position_key = make_position_key(ChessBoard{}, *config.position_key_format);
+        if (position_context_by_key.find(root_position_key) == position_context_by_key.end()) {
+            position_context_by_key.emplace(root_position_key, PositionContext{.depth_from_root = 0, .side_to_move = "white"});
+        }
+        result.canonical_predecessors.push_back(CanonicalPredecessorRecord{
+            .position_key = root_position_key,
+            .side_to_move = "white",
+            .depth_from_root = 0,
+            .parent_position_key = std::nullopt,
+            .incoming_move_uci = std::nullopt,
+            .edge_support_count = 0,
+            .selection_policy_version = selection_policy_version,
+        });
+        for (const auto& [child_position_key, candidates] : predecessor_candidates_by_child) {
+            if (candidates.empty()) {
+                continue;
+            }
+            // Deterministic canonical predecessor policy:
+            // 1) lower depth_from_root, 2) higher edge_support_count,
+            // 3) lexicographically smaller parent_position_key, 4) lexicographically smaller incoming_move_uci.
+            const auto best_it = std::min_element(candidates.begin(), candidates.end(), [](const auto& lhs, const auto& rhs) {
+                if (lhs.depth_from_root != rhs.depth_from_root) {
+                    return lhs.depth_from_root < rhs.depth_from_root;
+                }
+                if (lhs.edge_support_count != rhs.edge_support_count) {
+                    return lhs.edge_support_count > rhs.edge_support_count;
+                }
+                if (lhs.parent_position_key != rhs.parent_position_key) {
+                    return lhs.parent_position_key < rhs.parent_position_key;
+                }
+                return lhs.incoming_move_uci < rhs.incoming_move_uci;
+            });
+            const auto context_it = position_context_by_key.find(child_position_key);
+            const std::string child_side_to_move = context_it == position_context_by_key.end() ? "unknown" : context_it->second.side_to_move;
+            const int child_depth = context_it == position_context_by_key.end() ? best_it->depth_from_root : context_it->second.depth_from_root;
+            result.canonical_predecessors.push_back(CanonicalPredecessorRecord{
+                .position_key = child_position_key,
+                .side_to_move = child_side_to_move,
+                .depth_from_root = child_depth,
+                .parent_position_key = best_it->parent_position_key,
+                .incoming_move_uci = best_it->incoming_move_uci,
+                .edge_support_count = best_it->edge_support_count,
+                .selection_policy_version = selection_policy_version,
+            });
+        }
+        result.summary.canonical_predecessor_edges_emitted = static_cast<int>(result.canonical_predecessors.size());
+        result.summary.canonical_predecessor_payload_file = "data/canonical_predecessor_edges.sqlite";
+        result.summary.canonical_predecessor_payload_format = "sqlite";
+        result.summary.canonical_predecessor_payload_contract_version = "1";
+        result.summary.canonical_predecessor_selection_policy = selection_policy_version;
+        result.summary.canonical_predecessor_emitted = true;
+        if (progress) {
+            progress->note_event("canonical predecessor reduction completed");
+        }
+    } else {
+        result.summary.canonical_predecessor_selection_policy = selection_policy_version;
+        result.summary.canonical_predecessor_emitted = false;
     }
 
     for (const auto& [position_key, position] : aggregated) {
@@ -267,6 +362,8 @@ std::string render_aggregation_summary_json(const AggregationSummary& summary) {
         << "  \"total_replay_successes\": " << summary.total_replay_successes << ",\n"
         << "  \"total_extracted_ply_events_consumed\": " << summary.total_extracted_ply_events_consumed << ",\n"
         << "  \"total_unique_positions_emitted\": " << summary.total_unique_positions_emitted << ",\n"
+        << "  \"unique_child_positions_with_predecessor_candidates\": " << summary.unique_child_positions_with_predecessor_candidates << ",\n"
+        << "  \"canonical_predecessor_edges_emitted\": " << summary.canonical_predecessor_edges_emitted << ",\n"
         << "  \"total_aggregate_move_entries_emitted\": " << summary.total_aggregate_move_entries_emitted << ",\n"
         << "  \"total_raw_observations_emitted\": " << summary.total_raw_observations_emitted << ",\n"
         << "  \"min_position_count\": " << summary.min_position_count << ",\n"
@@ -280,6 +377,12 @@ std::string render_aggregation_summary_json(const AggregationSummary& summary) {
         << "  \"compatibility_mirror_emitted\": " << (summary.compatibility_mirror_emitted ? "true" : "false") << ",\n"
         << "  \"canonical_payload_size_bytes\": " << summary.canonical_payload_size_bytes << ",\n"
         << "  \"compatibility_payload_size_bytes\": " << summary.compatibility_payload_size_bytes << ",\n"
+        << "  \"canonical_predecessor_payload_file\": \"" << json_escape(summary.canonical_predecessor_payload_file) << "\",\n"
+        << "  \"canonical_predecessor_payload_format\": \"" << json_escape(summary.canonical_predecessor_payload_format) << "\",\n"
+        << "  \"canonical_predecessor_payload_contract_version\": \"" << json_escape(summary.canonical_predecessor_payload_contract_version) << "\",\n"
+        << "  \"canonical_predecessor_selection_policy\": \"" << json_escape(summary.canonical_predecessor_selection_policy) << "\",\n"
+        << "  \"canonical_predecessor_emitted\": " << (summary.canonical_predecessor_emitted ? "true" : "false") << ",\n"
+        << "  \"canonical_predecessor_single_parent_per_position\": " << (summary.canonical_predecessor_single_parent_per_position ? "true" : "false") << ",\n"
         << "  \"notes\": [\n";
     for (std::size_t i = 0; i < summary.notes.size(); ++i) {
         out << "    \"" << json_escape(summary.notes[i]) << "\"" << (i + 1 < summary.notes.size() ? "," : "") << "\n";
@@ -307,6 +410,8 @@ std::string render_aggregation_summary_text(const BuildConfig& config, const Agg
     out << "total replay successes: " << summary.total_replay_successes << "\n";
     out << "total extracted ply events consumed: " << summary.total_extracted_ply_events_consumed << "\n";
     out << "total unique positions emitted: " << summary.total_unique_positions_emitted << "\n";
+    out << "unique child positions with predecessor candidates: " << summary.unique_child_positions_with_predecessor_candidates << "\n";
+    out << "final canonical predecessor edges emitted: " << summary.canonical_predecessor_edges_emitted << "\n";
     out << "total raw observations emitted: " << summary.total_raw_observations_emitted << "\n";
     out << "min-position-count filtering impact: positions_filtered=" << summary.positions_filtered_by_min_count << ", observations_filtered=" << summary.observations_filtered_by_min_count << "\n";
     out << "aggregate preview rows emitted: " << summary.preview_row_count_emitted << "\n";

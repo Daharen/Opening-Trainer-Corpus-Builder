@@ -101,6 +101,7 @@ BundleWriteResult write_bundle(
     const std::vector<ExtractedOpeningSequence>* extraction_preview_rows = nullptr,
     const AggregationSummary* aggregation_summary = nullptr,
     const std::vector<AggregatedPositionRecord>* aggregate_positions = nullptr,
+    const std::vector<CanonicalPredecessorRecord>* canonical_predecessors = nullptr,
     const std::vector<AggregatedPositionRecord>* aggregate_preview_rows = nullptr) {
     const std::filesystem::path bundle_root = config.output_dir / artifact_id;
     if (progress) {
@@ -151,6 +152,21 @@ BundleWriteResult write_bundle(
         } else {
             write_aggregate_jsonl_streaming(data_dir / "aggregated_position_move_counts.jsonl", *aggregate_positions, config);
         }
+    }
+    if (canonical_predecessors != nullptr && config.emit_canonical_predecessors) {
+        const auto predecessor_stats = write_canonical_predecessor_payload_sqlite(
+            data_dir / "canonical_predecessor_edges.sqlite",
+            config,
+            artifact_id,
+            *aggregation_summary,
+            *canonical_predecessors);
+        (void)predecessor_stats;
+        enriched_aggregation_summary.canonical_predecessor_payload_file = "data/canonical_predecessor_edges.sqlite";
+        enriched_aggregation_summary.canonical_predecessor_payload_format = "sqlite";
+        enriched_aggregation_summary.canonical_predecessor_payload_contract_version = "1";
+        enriched_aggregation_summary.canonical_predecessor_selection_policy = "canonical_predecessor_policy_v1";
+        enriched_aggregation_summary.canonical_predecessor_emitted = true;
+        manifest_aggregation_summary = &enriched_aggregation_summary;
     }
 
     const ManifestData manifest = make_manifest_data(config, plan, artifact_id, scan_summary, extraction_summary, manifest_aggregation_summary);
@@ -228,7 +244,7 @@ BundleWriteResult write_extract_openings_bundle(const BuildConfig& config, const
 BundleWriteResult write_aggregate_counts_bundle(const BuildConfig& config, const SourcePreflightInfo& preflight_info, const RangePlan& range_plan, const AggregationResult& aggregation_result, ProgressReporter* progress) {
     const std::string artifact_id = config.artifact_id.value_or(derive_artifact_id(config));
     const BuildPlan plan = make_aggregate_counts_build_plan(preflight_info, range_plan);
-    return write_bundle(config, plan, artifact_id, true, progress, &aggregation_result.extraction_result.scan_result.summary, &aggregation_result.extraction_result.scan_result.preview_rows, &aggregation_result.extraction_result.summary, &aggregation_result.extraction_result.sequences, &aggregation_result.extraction_result.preview_rows, &aggregation_result.summary, &aggregation_result.positions, &aggregation_result.preview_rows);
+    return write_bundle(config, plan, artifact_id, true, progress, &aggregation_result.extraction_result.scan_result.summary, &aggregation_result.extraction_result.scan_result.preview_rows, &aggregation_result.extraction_result.summary, &aggregation_result.extraction_result.sequences, &aggregation_result.extraction_result.preview_rows, &aggregation_result.summary, &aggregation_result.positions, &aggregation_result.canonical_predecessors, &aggregation_result.preview_rows);
 }
 
 }  // namespace otcb
