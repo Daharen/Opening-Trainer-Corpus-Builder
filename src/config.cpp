@@ -57,6 +57,8 @@ std::string to_string(BuildMode mode) {
             return "extract-openings";
         case BuildMode::AggregateCounts:
             return "aggregate-counts";
+        case BuildMode::BuildPredecessorMaster:
+            return "build-predecessor-master";
     }
     return "unknown";
 }
@@ -79,6 +81,9 @@ std::optional<BuildMode> parse_build_mode(const std::string& value) {
     }
     if (value == "aggregate-counts") {
         return BuildMode::AggregateCounts;
+    }
+    if (value == "build-predecessor-master") {
+        return BuildMode::BuildPredecessorMaster;
     }
     return std::nullopt;
 }
@@ -172,20 +177,21 @@ std::string derive_artifact_id(const BuildConfig& config) {
 
 std::vector<std::string> validate_config(const BuildConfig& config) {
     std::vector<std::string> errors;
+    const bool is_predecessor_master_mode = config.mode == BuildMode::BuildPredecessorMaster;
 
-    if (!config.rating_policy.has_value()) {
+    if (!is_predecessor_master_mode && !config.rating_policy.has_value()) {
         errors.emplace_back("--rating-policy is required and must be explicit.");
     }
-    if (config.min_rating > config.max_rating) {
+    if (!is_predecessor_master_mode && config.min_rating > config.max_rating) {
         errors.emplace_back("--min-rating must be less than or equal to --max-rating.");
     }
-    if (config.retained_ply <= 0) {
+    if (!is_predecessor_master_mode && config.retained_ply <= 0) {
         errors.emplace_back("--retained-ply must be greater than 0.");
     }
-    if (config.threads < 1) {
+    if (!is_predecessor_master_mode && config.threads < 1) {
         errors.emplace_back("--threads must be at least 1.");
     }
-    if (config.max_games < 0) {
+    if (!is_predecessor_master_mode && config.max_games < 0) {
         errors.emplace_back("--max-games must be greater than or equal to 0.");
     }
     if (config.progress_interval < 1) {
@@ -194,33 +200,36 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.heartbeat_seconds < 1 || config.heartbeat_seconds > 60) {
         errors.emplace_back("--heartbeat-seconds must be between 1 and 60.");
     }
-    if (config.target_range_bytes == 0) {
+    if (!is_predecessor_master_mode && config.target_range_bytes == 0) {
         errors.emplace_back("--target-range-bytes must be greater than 0.");
     }
-    if (config.boundary_scan_bytes == 0) {
+    if (!is_predecessor_master_mode && config.boundary_scan_bytes == 0) {
         errors.emplace_back("--boundary-scan-bytes must be greater than 0.");
     }
-    if (config.max_ranges < 0) {
+    if (!is_predecessor_master_mode && config.max_ranges < 0) {
         errors.emplace_back("--max-ranges must be greater than or equal to 0.");
     }
-    if (config.header_preview_limit < 0) {
+    if (!is_predecessor_master_mode && config.header_preview_limit < 0) {
         errors.emplace_back("--header-preview-limit must be greater than or equal to 0.");
     }
-    if (config.extraction_preview_limit < 0) {
+    if (!is_predecessor_master_mode && config.extraction_preview_limit < 0) {
         errors.emplace_back("--extraction-preview-limit must be greater than or equal to 0.");
     }
-    if (config.aggregate_preview_limit < 0) {
+    if (!is_predecessor_master_mode && config.aggregate_preview_limit < 0) {
         errors.emplace_back("--aggregate-preview-limit must be greater than or equal to 0.");
     }
-    if (config.min_position_count < 1) {
+    if (!is_predecessor_master_mode && config.min_position_count < 1) {
         errors.emplace_back("--min-position-count must be at least 1.");
     }
-    if (config.input_format != "pgn") {
+    if (!is_predecessor_master_mode && config.input_format != "pgn") {
         errors.emplace_back("--input-format currently only supports 'pgn'.");
     }
+    if (config.merge_batch_size < 1) {
+        errors.emplace_back("--batch-size must be at least 1.");
+    }
 
-    const bool input_required = config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts;
-    const bool output_required = config.dry_run || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts;
+    const bool input_required = !is_predecessor_master_mode && (config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts);
+    const bool output_required = !is_predecessor_master_mode && (config.dry_run || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts);
 
     if (input_required && config.input_pgn.empty()) {
         errors.emplace_back("--input-pgn is required for the selected build mode.");
@@ -237,16 +246,16 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.mode != BuildMode::AggregateCounts && config.payload_format != PayloadFormat::Jsonl) {
         errors.emplace_back("--payload-format currently only supports aggregate-counts mode.");
     }
-    if (config.initial_time_seconds <= 0) {
+    if (!is_predecessor_master_mode && config.initial_time_seconds <= 0) {
         errors.emplace_back("--initial-time-seconds must be greater than 0.");
     }
-    if (config.increment_seconds < 0) {
+    if (!is_predecessor_master_mode && config.increment_seconds < 0) {
         errors.emplace_back("--increment-seconds must be greater than or equal to 0.");
     }
-    if (config.time_control_id.empty()) {
+    if (!is_predecessor_master_mode && config.time_control_id.empty()) {
         errors.emplace_back("--time-control-id must be non-empty.");
     }
-    if (config.time_format_label.empty()) {
+    if (!is_predecessor_master_mode && config.time_format_label.empty()) {
         errors.emplace_back("--time-format-label must be non-empty.");
     }
     if (config.mode == BuildMode::AggregateCounts && config.time_controls.empty()) {
@@ -254,6 +263,14 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     }
     if (config.mode == BuildMode::AggregateCounts && config.time_controls.size() != 1) {
         errors.emplace_back("--time-controls currently requires exactly one exact time control for final corpus bundle generation.");
+    }
+    if (config.mode == BuildMode::BuildPredecessorMaster) {
+        if (config.master_output.empty()) {
+            errors.emplace_back("--master-output is required for build-predecessor-master.");
+        }
+        if (config.source_predecessors.empty() && !config.source_list_file.has_value()) {
+            errors.emplace_back("At least one --source-predecessor or --source-list-file is required for build-predecessor-master.");
+        }
     }
     auto is_exact_time_control = [](const std::string& value) {
         const std::size_t plus = value.find('+');

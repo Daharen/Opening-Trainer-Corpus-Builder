@@ -31,6 +31,7 @@ add_executable(opening-trainer-corpus-builder
     src/aggregation.cpp
     src/sqlite_writer.cpp
     src/rating_filter.cpp
+    src/predecessor_master.cpp
 )
 
 if(OTCB_USE_SYSTEM_SQLITE)
@@ -197,6 +198,11 @@ if(BUILD_TESTING)
     add_test(
         NAME canonical_predecessor_payload_validation
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_predecessor_payload.py
+                $<TARGET_FILE:opening-trainer-corpus-builder> ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME canonical_predecessor_master_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_predecessor_master.py
                 $<TARGET_FILE:opening-trainer-corpus-builder> ${CMAKE_CURRENT_SOURCE_DIR}
     )
     add_test(

@@ -1,6 +1,7 @@
 #include "otcb/cli.hpp"
 
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -63,6 +64,22 @@ std::vector<std::string> parse_csv_list(const std::string& value) {
     return items;
 }
 
+std::vector<std::filesystem::path> read_source_list_file(const std::filesystem::path& list_path) {
+    std::ifstream in(list_path);
+    if (!in) {
+        throw std::runtime_error("Failed to read --source-list-file: " + list_path.string());
+    }
+    std::vector<std::filesystem::path> out;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        out.emplace_back(line);
+    }
+    return out;
+}
+
 }  // namespace
 
 CliParseResult parse_cli(int argc, char** argv) {
@@ -94,7 +111,7 @@ CliParseResult parse_cli(int argc, char** argv) {
             if (arg == "--mode") {
                 const auto parsed = parse_build_mode(require_value(argc, argv, index, arg));
                 if (!parsed.has_value()) {
-                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges, scan-headers, extract-openings, aggregate-counts.");
+                    throw std::runtime_error("Invalid value for --mode. Supported: dry-run, preflight, plan-ranges, scan-headers, extract-openings, aggregate-counts, build-predecessor-master.");
                 }
                 result.config.mode = *parsed;
                 result.config.dry_run = result.config.mode == BuildMode::DryRun;
@@ -102,6 +119,12 @@ CliParseResult parse_cli(int argc, char** argv) {
             }
             if (arg == "--input-pgn") { result.config.input_pgn = require_value(argc, argv, index, arg); continue; }
             if (arg == "--output-dir") { result.config.output_dir = require_value(argc, argv, index, arg); continue; }
+            if (arg == "--source-predecessor") { result.config.source_predecessors.emplace_back(require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--source-list-file") { result.config.source_list_file = require_value(argc, argv, index, arg); continue; }
+            if (arg == "--master-output") { result.config.master_output = require_value(argc, argv, index, arg); continue; }
+            if (arg == "--delete-source-after-merge") { result.config.delete_source_after_merge = true; continue; }
+            if (arg == "--batch-size") { result.config.merge_batch_size = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--skip-integrity-check") { result.config.skip_integrity_check = true; continue; }
             if (arg == "--min-rating") { result.config.min_rating = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
             if (arg == "--max-rating") { result.config.max_rating = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
             if (arg == "--rating-policy") {
@@ -170,6 +193,12 @@ CliParseResult parse_cli(int argc, char** argv) {
         return result;
     }
 
+    if (result.config.source_list_file.has_value()) {
+        const auto listed_sources = read_source_list_file(*result.config.source_list_file);
+        result.config.source_predecessors.insert(
+            result.config.source_predecessors.end(), listed_sources.begin(), listed_sources.end());
+    }
+
     result.errors = validate_config(result.config);
     result.ok = result.errors.empty();
     result.should_exit = !result.ok;
@@ -182,7 +211,7 @@ void print_usage(std::ostream& stream, const std::string& program_name) {
         << "Usage: " << program_name << " [options]\n\n"
         << "C++ corpus-builder scaffold with explicit preflight, deterministic PGN range planning, header-only game-envelope scanning, accepted-game movetext replay, and raw-count-only aggregation. aggregate-counts emits inspectable position->move raw counts only; shaping, suppression, weighting, and trainer-side load semantics remain deferred.\n\n"
         << "Options:\n"
-        << "  --mode <dry-run|preflight|plan-ranges|scan-headers|extract-openings|aggregate-counts>  Select builder mode. Default: dry-run.\n"
+        << "  --mode <dry-run|preflight|plan-ranges|scan-headers|extract-openings|aggregate-counts|build-predecessor-master>  Select builder mode. Default: dry-run.\n"
         << "  --input-pgn <path>                      Path to the source PGN file. Required for preflight, plan-ranges, scan-headers, extract-openings, aggregate-counts, and dry-run.\n"
         << "  --output-dir <path>                     Directory where the artifact bundle will be created. Required for plan-ranges, scan-headers, extract-openings, aggregate-counts, and dry-run.\n"
         << "  --input-format <pgn>                    Explicit source format. Currently only 'pgn' is supported.\n"
@@ -225,6 +254,12 @@ void print_usage(std::ostream& stream, const std::string& program_name) {
         << "  --initial-time-seconds <int>            Canonical initial clock time in seconds.\n"
         << "  --increment-seconds <int>               Canonical increment in seconds.\n"
         << "  --time-format-label <label>             Display-only broad time label (for example, Rapid).\n"
+        << "  --source-predecessor <path>             Repeated predecessor source path (sqlite file or artifact bundle root containing data/canonical_predecessor_edges.sqlite) for build-predecessor-master.\n"
+        << "  --source-list-file <path>               Newline-delimited file of predecessor source paths appended in listed order.\n"
+        << "  --master-output <path>                  Destination sqlite path for build-predecessor-master.\n"
+        << "  --delete-source-after-merge             Delete each successfully merged source artifact after commit and source-summary logging.\n"
+        << "  --batch-size <int>                      Number of source rows processed per master transaction chunk in build-predecessor-master.\n"
+        << "  --skip-integrity-check                  Skip post-merge PRAGMA quick_check (not recommended).\n"
         << "  --dry-run                               Legacy alias for --mode dry-run.\n"
         << "  --help                                  Print this help message and exit.\n"
         << "\nLive progress guarantee: during active stages the builder emits a flushed heartbeat at least once every --heartbeat-seconds (default 30, max 60), even when work-unit counters are changing slowly.\n";
