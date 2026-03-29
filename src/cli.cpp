@@ -153,6 +153,8 @@ CliParseResult parse_cli(int argc, char** argv) {
                 continue;
             }
             if (arg == "--no-legacy-sqlite-mirror") { result.config.emit_legacy_sqlite_mirror = false; continue; }
+            if (arg == "--emit-canonical-predecessors") { result.config.emit_canonical_predecessors = true; continue; }
+            if (arg == "--no-canonical-predecessors") { result.config.emit_canonical_predecessors = false; continue; }
             if (arg == "--time-controls") { result.config.time_controls = parse_csv_list(require_value(argc, argv, index, arg)); continue; }
             if (arg == "--time-control-id") { result.config.time_control_id = require_value(argc, argv, index, arg); continue; }
             if (arg == "--initial-time-seconds") { result.config.initial_time_seconds = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
@@ -216,6 +218,8 @@ void print_usage(std::ostream& stream, const std::string& program_name) {
         << "  --min-position-count <int>              Filter aggregated positions after counting. Must be >= 1.\n"
         << "  --payload-format <jsonl|sqlite|exact_sqlite_v2_compact>  Aggregate payload encoding. Default: jsonl. Only valid for aggregate-counts.\n"
         << "  --no-legacy-sqlite-mirror               Disable transitional legacy data/corpus.sqlite mirror when using compact v2 payload.\n"
+        << "  --emit-canonical-predecessors           Emit canonical predecessor edge companion payload (default on for aggregate-counts).\n"
+        << "  --no-canonical-predecessors             Disable canonical predecessor edge companion payload emission.\n"
         << "  --time-controls <value[,value...]>      Exact PGN TimeControl filter(s) enforced during ingestion for aggregate-counts (for example, 600+0).\n"
         << "  --time-control-id <value>               Canonical time-control contract id (for example, 600+0).\n"
         << "  --initial-time-seconds <int>            Canonical initial clock time in seconds.\n"

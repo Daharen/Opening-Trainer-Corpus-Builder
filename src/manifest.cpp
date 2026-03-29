@@ -123,6 +123,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
         manifest.unique_positions_emitted = aggregation_summary->total_unique_positions_emitted;
         manifest.aggregate_move_entries_emitted = aggregation_summary->total_aggregate_move_entries_emitted;
         manifest.raw_observations_emitted = aggregation_summary->total_raw_observations_emitted;
+        manifest.canonical_predecessor_edges_emitted = aggregation_summary->canonical_predecessor_edges_emitted;
         manifest.min_position_count = aggregation_summary->min_position_count;
         manifest.games_rejected_by_rating_filter = aggregation_summary->games_rejected_by_rating_filter;
         manifest.games_rejected_time_control_mismatch = aggregation_summary->games_rejected_by_time_control_filter;
@@ -143,6 +144,15 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
             manifest.aggregate_sqlite_file.clear();
         }
         if (config.emit_aggregate_preview) manifest.payload_files.push_back("data/aggregate_preview.jsonl");
+        if (aggregation_summary->canonical_predecessor_emitted) {
+            manifest.canonical_predecessor_payload_file = aggregation_summary->canonical_predecessor_payload_file;
+            manifest.canonical_predecessor_payload_format = aggregation_summary->canonical_predecessor_payload_format;
+            manifest.canonical_predecessor_payload_contract_version = aggregation_summary->canonical_predecessor_payload_contract_version;
+            manifest.canonical_predecessor_selection_policy = aggregation_summary->canonical_predecessor_selection_policy;
+            manifest.canonical_predecessor_emitted = true;
+            manifest.canonical_predecessor_single_parent_per_position = aggregation_summary->canonical_predecessor_single_parent_per_position;
+            manifest.payload_files.push_back(aggregation_summary->canonical_predecessor_payload_file);
+        }
         manifest.payload_status = "raw_aggregate_counts_present_non_final_trainer_payload";
         manifest.total_accepted_games = aggregation_summary->total_games_accepted_upstream;
         manifest.total_emitted_positions = aggregation_summary->total_unique_positions_emitted;
@@ -247,6 +257,13 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"min_position_count\": " << manifest.min_position_count << ",\n";
     output << "  \"sqlite_positions_rows\": " << manifest.sqlite_positions_rows << ",\n";
     output << "  \"sqlite_moves_rows\": " << manifest.sqlite_moves_rows << ",\n";
+    output << "  \"canonical_predecessor_payload_file\": \"" << json_escape(manifest.canonical_predecessor_payload_file) << "\",\n";
+    output << "  \"canonical_predecessor_payload_format\": \"" << json_escape(manifest.canonical_predecessor_payload_format) << "\",\n";
+    output << "  \"canonical_predecessor_payload_contract_version\": \"" << json_escape(manifest.canonical_predecessor_payload_contract_version) << "\",\n";
+    output << "  \"canonical_predecessor_selection_policy\": \"" << json_escape(manifest.canonical_predecessor_selection_policy) << "\",\n";
+    output << "  \"canonical_predecessor_emitted\": " << (manifest.canonical_predecessor_emitted ? "true" : "false") << ",\n";
+    output << "  \"canonical_predecessor_single_parent_per_position\": " << (manifest.canonical_predecessor_single_parent_per_position ? "true" : "false") << ",\n";
+    output << "  \"canonical_predecessor_edges_emitted\": " << manifest.canonical_predecessor_edges_emitted << ",\n";
     output << "  \"eligibility_counts\": {\n";
     for (auto it = manifest.eligibility_counts.begin(); it != manifest.eligibility_counts.end(); ++it) {
         output << "    \"" << json_escape(it->first) << "\": " << it->second << (std::next(it) != manifest.eligibility_counts.end() ? "," : "") << "\n";
@@ -330,6 +347,8 @@ std::string render_build_summary(const BuildConfig& config, const BuildPlan& pla
         if (config.payload_format == PayloadFormat::Sqlite) {
             output << "sqlite row counts: positions=" << aggregation_summary->sqlite_positions_rows << ", moves=" << aggregation_summary->sqlite_moves_rows << "\n";
         }
+        output << "canonical predecessor payload emitted: " << (aggregation_summary->canonical_predecessor_emitted ? "yes" : "no") << "\n";
+        output << "canonical predecessor edges emitted: " << aggregation_summary->canonical_predecessor_edges_emitted << "\n";
         output << "aggregate preview rows emitted: " << aggregation_summary->preview_row_count_emitted << "\n";
         output << "explicit shaping remains deferred: yes\n";
     } else if (scan_summary) {

@@ -97,6 +97,13 @@ struct ManifestData {
     int min_position_count = 0;
     int sqlite_positions_rows = 0;
     int sqlite_moves_rows = 0;
+    std::string canonical_predecessor_payload_file;
+    std::string canonical_predecessor_payload_format;
+    std::string canonical_predecessor_payload_contract_version;
+    std::string canonical_predecessor_selection_policy;
+    bool canonical_predecessor_emitted = false;
+    bool canonical_predecessor_single_parent_per_position = true;
+    int canonical_predecessor_edges_emitted = 0;
     std::vector<std::string> payload_files;
     std::string payload_status;
     std::vector<std::string> notes;
