@@ -20,6 +20,7 @@ enum class ProgressStage {
     ScanHeaders,
     ExtractOpenings,
     AggregateCounts,
+    ComputeRiskyOverlay,
     WriteArtifacts,
     Finalize,
 };
@@ -55,6 +56,19 @@ struct ProgressSnapshot {
     std::optional<int> max_games;
     std::optional<double> throughput_per_second;
     std::optional<std::chrono::seconds> eta;
+    std::string risky_current_band;
+    std::string risky_current_policy;
+    std::string risky_current_scope;
+    int risky_positions_considered = 0;
+    int risky_candidate_fails_considered = 0;
+    int risky_candidates_skipped_support = 0;
+    int risky_candidates_evaluated = 0;
+    int risky_admitted_rows = 0;
+    int risky_unresolved_rows = 0;
+    int risky_rejected_rows = 0;
+    int risky_pooling_events = 0;
+    double risky_memo_hit_rate = 0.0;
+    std::optional<int> risky_estimated_remaining_work;
     std::string last_event_message;
 };
 
