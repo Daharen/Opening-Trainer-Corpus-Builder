@@ -30,6 +30,7 @@ add_executable(opening-trainer-corpus-builder
     src/position_key.cpp
     src/aggregation.cpp
     src/sqlite_writer.cpp
+    src/gambit_companion.cpp
     src/rating_filter.cpp
     src/predecessor_master.cpp
 )
@@ -224,6 +225,12 @@ if(BUILD_TESTING)
                 $<TARGET_FILE:build-behavioral-profiles>
                 $<TARGET_FILE:build-timing-conditioned-corpus-bundle>
                 ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    add_test(
+        NAME gambit_companion_payload_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_gambit_companion_payload.py
+                $<TARGET_FILE:opening-trainer-corpus-builder> ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
     add_test(

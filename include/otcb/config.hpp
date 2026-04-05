@@ -53,6 +53,14 @@ std::optional<MoveKeyFormat> parse_move_key_format(const std::string& value);
 std::string to_string(PayloadFormat format);
 std::optional<PayloadFormat> parse_payload_format(const std::string& value);
 
+
+struct GambitUtilityConfig {
+    int horizon_plies = 6;
+    double t_sigma = 0.03;
+    double delta_max = 0.05;
+    int n_min = 150;
+};
+
 struct BuildConfig {
     std::filesystem::path input_pgn;
     std::filesystem::path output_dir;
@@ -103,6 +111,7 @@ struct BuildConfig {
     bool delete_source_after_merge = false;
     int merge_batch_size = 1000;
     bool skip_integrity_check = false;
+    GambitUtilityConfig gambit_utility;
 };
 
 std::string derive_artifact_id(const BuildConfig& config);

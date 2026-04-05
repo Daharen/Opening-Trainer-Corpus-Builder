@@ -10,6 +10,7 @@
 #include "otcb/opening_extraction.hpp"
 #include "otcb/progress.hpp"
 #include "otcb/sqlite_writer.hpp"
+#include "otcb/gambit_companion.hpp"
 
 namespace otcb {
 namespace {
@@ -166,6 +167,22 @@ BundleWriteResult write_bundle(
         enriched_aggregation_summary.canonical_predecessor_payload_contract_version = "1";
         enriched_aggregation_summary.canonical_predecessor_selection_policy = "canonical_predecessor_policy_v1";
         enriched_aggregation_summary.canonical_predecessor_emitted = true;
+        manifest_aggregation_summary = &enriched_aggregation_summary;
+    }
+
+    if (aggregate_positions != nullptr && aggregation_summary != nullptr) {
+        const auto gambit_stats = write_gambit_companion_sqlite(
+            data_dir / "gambit_acceptance_companion.sqlite",
+            config,
+            *aggregation_summary,
+            *aggregate_positions);
+        enriched_aggregation_summary.gambit_companion_payload_file = gambit_stats.payload_file;
+        enriched_aggregation_summary.gambit_companion_payload_format = "sqlite";
+        enriched_aggregation_summary.gambit_companion_emitted = true;
+        enriched_aggregation_summary.gambit_companion_ordinary_rows = gambit_stats.ordinary_rows;
+        enriched_aggregation_summary.gambit_companion_metrics_rows = gambit_stats.metrics_rows;
+        enriched_aggregation_summary.gambit_companion_acceptance_rows = gambit_stats.acceptance_rows;
+        enriched_aggregation_summary.gambit_companion_unresolved_rows = gambit_stats.unresolved_rows;
         manifest_aggregation_summary = &enriched_aggregation_summary;
     }
 
