@@ -170,13 +170,12 @@ BundleWriteResult write_bundle(
         manifest_aggregation_summary = &enriched_aggregation_summary;
     }
 
-    if (config.gambit_utility.enabled && aggregate_positions != nullptr && aggregation_summary != nullptr) {
+    if (aggregate_positions != nullptr && aggregation_summary != nullptr) {
         const auto gambit_stats = write_gambit_companion_sqlite(
             data_dir / "gambit_acceptance_companion.sqlite",
             config,
             *aggregation_summary,
-            *aggregate_positions,
-            progress);
+            *aggregate_positions);
         enriched_aggregation_summary.gambit_companion_payload_file = gambit_stats.payload_file;
         enriched_aggregation_summary.gambit_companion_payload_format = "sqlite";
         enriched_aggregation_summary.gambit_companion_emitted = true;
@@ -184,10 +183,6 @@ BundleWriteResult write_bundle(
         enriched_aggregation_summary.gambit_companion_metrics_rows = gambit_stats.metrics_rows;
         enriched_aggregation_summary.gambit_companion_acceptance_rows = gambit_stats.acceptance_rows;
         enriched_aggregation_summary.gambit_companion_unresolved_rows = gambit_stats.unresolved_rows;
-        enriched_aggregation_summary.gambit_companion_rejected_rows = gambit_stats.rejected_rows;
-        enriched_aggregation_summary.gambit_companion_pooling_events = gambit_stats.pooling_events;
-        if (config.gambit_utility.emit_scope_risky_gambit) enriched_aggregation_summary.gambit_companion_scope_variants.push_back("risky_gambit");
-        if (config.gambit_utility.emit_scope_risky_sharp) enriched_aggregation_summary.gambit_companion_scope_variants.push_back("risky_sharp");
         manifest_aggregation_summary = &enriched_aggregation_summary;
     }
 

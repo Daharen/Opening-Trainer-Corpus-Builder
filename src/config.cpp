@@ -230,9 +230,6 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.gambit_utility.horizon_plies < 1) {
         errors.emplace_back("gambit utility horizon_plies must be at least 1.");
     }
-    if (config.gambit_utility.candidate_min_support < 1) {
-        errors.emplace_back("gambit utility candidate_min_support must be at least 1.");
-    }
     if (config.gambit_utility.n_min < 1) {
         errors.emplace_back("gambit utility n_min must be at least 1.");
     }
@@ -241,15 +238,6 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     }
     if (config.gambit_utility.delta_max < 0.0) {
         errors.emplace_back("gambit utility delta_max must be non-negative.");
-    }
-    if (config.gambit_utility.significance_z <= 0.0) {
-        errors.emplace_back("gambit utility significance_z must be positive.");
-    }
-    if (!config.gambit_utility.emit_scope_risky_gambit && !config.gambit_utility.emit_scope_risky_sharp) {
-        errors.emplace_back("At least one risky scope must be enabled.");
-    }
-    if (config.gambit_utility.continuation_policies.empty()) {
-        errors.emplace_back("gambit utility continuation_policies cannot be empty.");
     }
 
     const bool input_required = !is_predecessor_master_mode && (config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts);

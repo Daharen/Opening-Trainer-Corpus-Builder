@@ -65,23 +65,15 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.compatibility_payload_format = config.payload_format == PayloadFormat::ExactSqliteV2Compact && config.emit_legacy_sqlite_mirror ? "sqlite_v1_legacy_mirror" : "";
     manifest.compatibility_payload_emitted = config.payload_format == PayloadFormat::ExactSqliteV2Compact && config.emit_legacy_sqlite_mirror;
     manifest.compatibility_payload_semantics_identical = manifest.compatibility_payload_emitted;
-    manifest.continuation_policy_variants = config.gambit_utility.continuation_policies;
-    if (config.gambit_utility.emit_scope_risky_gambit) manifest.scope_variants.push_back("risky_gambit");
-    if (config.gambit_utility.emit_scope_risky_sharp) manifest.scope_variants.push_back("risky_sharp");
+    manifest.continuation_policy_variants = {"strict", "lenient"};
     manifest.gambit_horizon_plies = config.gambit_utility.horizon_plies;
     manifest.significance_method = "one_sided_95pct_lower_bound_gt_zero";
-    manifest.significance_z = config.gambit_utility.significance_z;
     manifest.gambit_t_sigma = config.gambit_utility.t_sigma;
     manifest.gambit_delta_max = config.gambit_utility.delta_max;
     manifest.gambit_n_min = config.gambit_utility.n_min;
-    manifest.risky_candidate_support_floor = config.gambit_utility.candidate_min_support;
     manifest.pooled_band_behavior = "downward_pooling_then_locked_downward_propagation";
     manifest.downward_propagation_applied = true;
     manifest.family_mapping_source = "builder_named_families_v1";
-    manifest.family_annotation_optional = true;
-    manifest.full_external_opening_book_used = false;
-    manifest.retained_opening_scope_mode = "retained_opening_window_only";
-    manifest.ordinary_acceptance_oracle_provenance = "builder_local_rank_frequency_placeholder";
     manifest.gambit_eligibility_policy = to_string(*config.rating_policy);
     manifest.position_key_format = config.position_key_format.has_value() ? to_string(*config.position_key_format) : "not_yet_implemented_scaffold_position_keys";
     manifest.move_key_format = config.move_key_format.has_value() ? to_string(*config.move_key_format) : "not_yet_implemented_scaffold_move_keys";
@@ -172,18 +164,13 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
             manifest.payload_files.push_back(aggregation_summary->canonical_predecessor_payload_file);
         }
         if (aggregation_summary->gambit_companion_emitted) {
-            manifest.companion_payload_role = "compact_risky_overlay_companion";
+            manifest.companion_payload_role = "ordinary_acceptance_and_gambit_utility";
             manifest.companion_payload_file = aggregation_summary->gambit_companion_payload_file;
             manifest.companion_payload_format = aggregation_summary->gambit_companion_payload_format;
             manifest.gambit_companion_ordinary_rows = aggregation_summary->gambit_companion_ordinary_rows;
             manifest.gambit_companion_metrics_rows = aggregation_summary->gambit_companion_metrics_rows;
             manifest.gambit_companion_acceptance_rows = aggregation_summary->gambit_companion_acceptance_rows;
             manifest.gambit_companion_unresolved_rows = aggregation_summary->gambit_companion_unresolved_rows;
-            manifest.gambit_companion_rejected_rows = aggregation_summary->gambit_companion_rejected_rows;
-            manifest.gambit_companion_pooling_events = aggregation_summary->gambit_companion_pooling_events;
-            if (!aggregation_summary->gambit_companion_scope_variants.empty()) {
-                manifest.scope_variants = aggregation_summary->gambit_companion_scope_variants;
-            }
             manifest.payload_files.push_back(aggregation_summary->gambit_companion_payload_file);
         }
         manifest.payload_status = "raw_aggregate_counts_present_non_final_trainer_payload";
@@ -299,33 +286,19 @@ std::string render_manifest_json(const ManifestData& manifest) {
         if (i + 1 < manifest.continuation_policy_variants.size()) output << ", ";
     }
     output << "],\n";
-    output << "  \"scope_variants\": [";
-    for (std::size_t i = 0; i < manifest.scope_variants.size(); ++i) {
-        output << "\"" << json_escape(manifest.scope_variants[i]) << "\"";
-        if (i + 1 < manifest.scope_variants.size()) output << ", ";
-    }
-    output << "],\n";
     output << "  \"gambit_horizon_plies\": " << manifest.gambit_horizon_plies << ",\n";
     output << "  \"significance_method\": \"" << json_escape(manifest.significance_method) << "\",\n";
-    output << "  \"significance_z\": " << manifest.significance_z << ",\n";
     output << "  \"gambit_t_sigma\": " << manifest.gambit_t_sigma << ",\n";
     output << "  \"gambit_delta_max\": " << manifest.gambit_delta_max << ",\n";
     output << "  \"gambit_n_min\": " << manifest.gambit_n_min << ",\n";
-    output << "  \"risky_candidate_support_floor\": " << manifest.risky_candidate_support_floor << ",\n";
     output << "  \"gambit_eligibility_policy\": \"" << json_escape(manifest.gambit_eligibility_policy) << "\",\n";
     output << "  \"pooled_band_behavior\": \"" << json_escape(manifest.pooled_band_behavior) << "\",\n";
     output << "  \"downward_propagation_applied\": " << (manifest.downward_propagation_applied ? "true" : "false") << ",\n";
     output << "  \"family_mapping_source\": \"" << json_escape(manifest.family_mapping_source) << "\",\n";
-    output << "  \"family_annotation_optional\": " << (manifest.family_annotation_optional ? "true" : "false") << ",\n";
-    output << "  \"full_external_opening_book_used\": " << (manifest.full_external_opening_book_used ? "true" : "false") << ",\n";
-    output << "  \"retained_opening_scope_mode\": \"" << json_escape(manifest.retained_opening_scope_mode) << "\",\n";
-    output << "  \"ordinary_acceptance_oracle_provenance\": \"" << json_escape(manifest.ordinary_acceptance_oracle_provenance) << "\",\n";
     output << "  \"gambit_companion_ordinary_rows\": " << manifest.gambit_companion_ordinary_rows << ",\n";
     output << "  \"gambit_companion_metrics_rows\": " << manifest.gambit_companion_metrics_rows << ",\n";
     output << "  \"gambit_companion_acceptance_rows\": " << manifest.gambit_companion_acceptance_rows << ",\n";
     output << "  \"gambit_companion_unresolved_rows\": " << manifest.gambit_companion_unresolved_rows << ",\n";
-    output << "  \"gambit_companion_rejected_rows\": " << manifest.gambit_companion_rejected_rows << ",\n";
-    output << "  \"gambit_companion_pooling_events\": " << manifest.gambit_companion_pooling_events << ",\n";
     output << "  \"canonical_predecessor_payload_file\": \"" << json_escape(manifest.canonical_predecessor_payload_file) << "\",\n";
     output << "  \"canonical_predecessor_payload_format\": \"" << json_escape(manifest.canonical_predecessor_payload_format) << "\",\n";
     output << "  \"canonical_predecessor_payload_contract_version\": \"" << json_escape(manifest.canonical_predecessor_payload_contract_version) << "\",\n";
