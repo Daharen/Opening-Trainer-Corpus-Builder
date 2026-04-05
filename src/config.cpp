@@ -227,6 +227,18 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.merge_batch_size < 1) {
         errors.emplace_back("--batch-size must be at least 1.");
     }
+    if (config.gambit_utility.horizon_plies < 1) {
+        errors.emplace_back("gambit utility horizon_plies must be at least 1.");
+    }
+    if (config.gambit_utility.n_min < 1) {
+        errors.emplace_back("gambit utility n_min must be at least 1.");
+    }
+    if (config.gambit_utility.t_sigma < 0.0) {
+        errors.emplace_back("gambit utility t_sigma must be non-negative.");
+    }
+    if (config.gambit_utility.delta_max < 0.0) {
+        errors.emplace_back("gambit utility delta_max must be non-negative.");
+    }
 
     const bool input_required = !is_predecessor_master_mode && (config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts);
     const bool output_required = !is_predecessor_master_mode && (config.dry_run || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts);
