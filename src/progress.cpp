@@ -68,6 +68,7 @@ std::string to_string(const ProgressStage stage) {
         case ProgressStage::ScanHeaders: return "scan-headers";
         case ProgressStage::ExtractOpenings: return "extract-openings";
         case ProgressStage::AggregateCounts: return "aggregate-counts";
+        case ProgressStage::ComputeRiskyOverlay: return "compute-risky-overlay";
         case ProgressStage::WriteArtifacts: return "write-artifacts";
         case ProgressStage::Finalize: return "finalize";
     }
@@ -242,6 +243,25 @@ std::string ProgressReporter::format_console_line_locked(const char* kind) const
     if (snapshot_.eta.has_value()) {
         append_metric(out, "eta", format_duration(*snapshot_.eta));
     }
+    if (!snapshot_.risky_current_band.empty()) append_metric(out, "risky_band", snapshot_.risky_current_band);
+    if (!snapshot_.risky_current_policy.empty()) append_metric(out, "risky_policy", snapshot_.risky_current_policy);
+    if (!snapshot_.risky_current_scope.empty()) append_metric(out, "risky_scope", snapshot_.risky_current_scope);
+    if (snapshot_.risky_positions_considered > 0) append_metric(out, "risky_positions_considered", std::to_string(snapshot_.risky_positions_considered));
+    if (snapshot_.risky_candidate_fails_considered > 0) append_metric(out, "risky_candidate_fails", std::to_string(snapshot_.risky_candidate_fails_considered));
+    if (snapshot_.risky_candidates_skipped_support > 0) append_metric(out, "risky_skipped_support", std::to_string(snapshot_.risky_candidates_skipped_support));
+    if (snapshot_.risky_candidates_evaluated > 0) append_metric(out, "risky_evaluated", std::to_string(snapshot_.risky_candidates_evaluated));
+    if (snapshot_.risky_admitted_rows > 0) append_metric(out, "risky_admitted", std::to_string(snapshot_.risky_admitted_rows));
+    if (snapshot_.risky_unresolved_rows > 0) append_metric(out, "risky_unresolved", std::to_string(snapshot_.risky_unresolved_rows));
+    if (snapshot_.risky_rejected_rows > 0) append_metric(out, "risky_rejected", std::to_string(snapshot_.risky_rejected_rows));
+    if (snapshot_.risky_pooling_events > 0) append_metric(out, "risky_pooling_events", std::to_string(snapshot_.risky_pooling_events));
+    if (snapshot_.risky_memo_hit_rate > 0.0) {
+        std::ostringstream m;
+        m << std::fixed << std::setprecision(3) << snapshot_.risky_memo_hit_rate;
+        append_metric(out, "risky_memo_hit_rate", m.str());
+    }
+    if (snapshot_.risky_estimated_remaining_work.has_value()) {
+        append_metric(out, "risky_remaining", std::to_string(*snapshot_.risky_estimated_remaining_work));
+    }
     append_metric(out, "status", snapshot_.last_event_message.empty() ? std::string("still-active") : snapshot_.last_event_message);
     return out.str();
 }
@@ -276,6 +296,19 @@ std::string ProgressReporter::format_status_json_locked() const {
     out << "  \"aggregate_move_entries\": " << snapshot_.aggregate_move_entries << ",\n";
     out << "  \"throughput_per_second\": " << (snapshot_.throughput_per_second ? std::to_string(*snapshot_.throughput_per_second) : "null") << ",\n";
     out << "  \"eta_seconds\": " << (snapshot_.eta ? std::to_string(snapshot_.eta->count()) : "null") << ",\n";
+    out << "  \"risky_current_band\": \"" << json_escape(snapshot_.risky_current_band) << "\",\n";
+    out << "  \"risky_current_policy\": \"" << json_escape(snapshot_.risky_current_policy) << "\",\n";
+    out << "  \"risky_current_scope\": \"" << json_escape(snapshot_.risky_current_scope) << "\",\n";
+    out << "  \"risky_positions_considered\": " << snapshot_.risky_positions_considered << ",\n";
+    out << "  \"risky_candidate_fails_considered\": " << snapshot_.risky_candidate_fails_considered << ",\n";
+    out << "  \"risky_candidates_skipped_support\": " << snapshot_.risky_candidates_skipped_support << ",\n";
+    out << "  \"risky_candidates_evaluated\": " << snapshot_.risky_candidates_evaluated << ",\n";
+    out << "  \"risky_admitted_rows\": " << snapshot_.risky_admitted_rows << ",\n";
+    out << "  \"risky_unresolved_rows\": " << snapshot_.risky_unresolved_rows << ",\n";
+    out << "  \"risky_rejected_rows\": " << snapshot_.risky_rejected_rows << ",\n";
+    out << "  \"risky_pooling_events\": " << snapshot_.risky_pooling_events << ",\n";
+    out << "  \"risky_memo_hit_rate\": " << snapshot_.risky_memo_hit_rate << ",\n";
+    out << "  \"risky_estimated_remaining_work\": " << (snapshot_.risky_estimated_remaining_work ? std::to_string(*snapshot_.risky_estimated_remaining_work) : "null") << ",\n";
     out << "  \"last_event_message\": \"" << json_escape(snapshot_.last_event_message) << "\"\n";
     out << "}\n";
     return out.str();
