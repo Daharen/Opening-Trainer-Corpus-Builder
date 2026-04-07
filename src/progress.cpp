@@ -69,6 +69,8 @@ std::string to_string(const ProgressStage stage) {
         case ProgressStage::ExtractOpenings: return "extract-openings";
         case ProgressStage::AggregateCounts: return "aggregate-counts";
         case ProgressStage::ComputeRiskyOverlay: return "compute-risky-overlay";
+        case ProgressStage::SeedProbeScan: return "seed-probe-scan";
+        case ProgressStage::SeedProbeEvaluate: return "seed-probe-evaluate";
         case ProgressStage::WriteArtifacts: return "write-artifacts";
         case ProgressStage::Finalize: return "finalize";
     }
@@ -262,6 +264,11 @@ std::string ProgressReporter::format_console_line_locked(const char* kind) const
     if (snapshot_.risky_estimated_remaining_work.has_value()) {
         append_metric(out, "risky_remaining", std::to_string(*snapshot_.risky_estimated_remaining_work));
     }
+    if (snapshot_.probe_games_in_scope > 0) append_metric(out, "probe_games_in_scope", std::to_string(snapshot_.probe_games_in_scope));
+    if (snapshot_.probe_games_reaching_any > 0) append_metric(out, "probe_games_reaching_any", std::to_string(snapshot_.probe_games_reaching_any));
+    if (snapshot_.probe_nodes_built > 0) append_metric(out, "probe_nodes_built", std::to_string(snapshot_.probe_nodes_built));
+    if (snapshot_.probe_entries_evaluated > 0) append_metric(out, "probe_entries_evaluated", std::to_string(snapshot_.probe_entries_evaluated));
+    if (!snapshot_.probe_current_id.empty()) append_metric(out, "probe_id", snapshot_.probe_current_id);
     append_metric(out, "status", snapshot_.last_event_message.empty() ? std::string("still-active") : snapshot_.last_event_message);
     return out.str();
 }
@@ -309,6 +316,11 @@ std::string ProgressReporter::format_status_json_locked() const {
     out << "  \"risky_pooling_events\": " << snapshot_.risky_pooling_events << ",\n";
     out << "  \"risky_memo_hit_rate\": " << snapshot_.risky_memo_hit_rate << ",\n";
     out << "  \"risky_estimated_remaining_work\": " << (snapshot_.risky_estimated_remaining_work ? std::to_string(*snapshot_.risky_estimated_remaining_work) : "null") << ",\n";
+    out << "  \"probe_games_in_scope\": " << snapshot_.probe_games_in_scope << ",\n";
+    out << "  \"probe_games_reaching_any\": " << snapshot_.probe_games_reaching_any << ",\n";
+    out << "  \"probe_nodes_built\": " << snapshot_.probe_nodes_built << ",\n";
+    out << "  \"probe_entries_evaluated\": " << snapshot_.probe_entries_evaluated << ",\n";
+    out << "  \"probe_current_id\": \"" << json_escape(snapshot_.probe_current_id) << "\",\n";
     out << "  \"last_event_message\": \"" << json_escape(snapshot_.last_event_message) << "\"\n";
     out << "}\n";
     return out.str();

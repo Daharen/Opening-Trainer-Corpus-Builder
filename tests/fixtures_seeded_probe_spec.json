@@ -1,0 +1,18 @@
+{
+  "probes": [
+    {
+      "probe_id": "initial_white_choice",
+      "position_key": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+      "side_to_optimize": "white",
+      "candidate_moves": ["e2e4"],
+      "baseline_moves": ["d2d4"],
+      "horizon_plies": 4,
+      "search_max_ply": 2,
+      "entry_min_support": 2,
+      "self_move_min_support": 1,
+      "reply_min_support": 1,
+      "prior_weight": 2.0,
+      "delta_max": 0.10
+    }
+  ]
+}
