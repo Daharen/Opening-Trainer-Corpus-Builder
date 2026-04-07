@@ -55,10 +55,20 @@ std::optional<PayloadFormat> parse_payload_format(const std::string& value);
 
 
 struct GambitUtilityConfig {
+    bool enabled = true;
     int horizon_plies = 6;
+    int candidate_min_support = 5;
     double t_sigma = 0.03;
     double delta_max = 0.05;
+    double mu_floor = 0.42;
     int n_min = 150;
+    int r_min = 2;
+    double k = 1.0;
+    bool enable_downward_pooling = true;
+    bool enable_downward_propagation = true;
+    bool emit_scope_risky_sharp = true;
+    bool emit_scope_risky_gambit = false;
+    std::vector<std::string> continuation_policies = {"strict", "lenient"};
 };
 
 struct BuildConfig {

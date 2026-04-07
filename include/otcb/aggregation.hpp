@@ -78,6 +78,7 @@ struct AggregationSummary {
     int gambit_companion_metrics_rows = 0;
     int gambit_companion_acceptance_rows = 0;
     int gambit_companion_unresolved_rows = 0;
+    int gambit_companion_rejected_rows = 0;
     std::vector<std::string> notes;
 };
 

@@ -184,8 +184,14 @@ CliParseResult parse_cli(int argc, char** argv) {
             if (arg == "--risky-candidate-min-support") { result.config.gambit_utility.candidate_min_support = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
             if (arg == "--risky-t-sigma") { result.config.gambit_utility.t_sigma = std::stod(require_value(argc, argv, index, arg)); continue; }
             if (arg == "--risky-delta-max") { result.config.gambit_utility.delta_max = std::stod(require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--risky-mu-floor") { result.config.gambit_utility.mu_floor = std::stod(require_value(argc, argv, index, arg)); continue; }
             if (arg == "--risky-n-min") { result.config.gambit_utility.n_min = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
-            if (arg == "--risky-significance-z") { result.config.gambit_utility.significance_z = std::stod(require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--risky-r-min") { result.config.gambit_utility.r_min = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--risky-k") { result.config.gambit_utility.k = std::stod(require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--risky-enable-downward-pooling") { result.config.gambit_utility.enable_downward_pooling = true; continue; }
+            if (arg == "--risky-disable-downward-pooling") { result.config.gambit_utility.enable_downward_pooling = false; continue; }
+            if (arg == "--risky-enable-downward-propagation") { result.config.gambit_utility.enable_downward_propagation = true; continue; }
+            if (arg == "--risky-disable-downward-propagation") { result.config.gambit_utility.enable_downward_propagation = false; continue; }
             if (arg == "--emit-risky-gambit-scope") { result.config.gambit_utility.emit_scope_risky_gambit = true; continue; }
             if (arg == "--no-risky-gambit-scope") { result.config.gambit_utility.emit_scope_risky_gambit = false; continue; }
             if (arg == "--emit-risky-sharp-scope") { result.config.gambit_utility.emit_scope_risky_sharp = true; continue; }
@@ -268,9 +274,15 @@ void print_usage(std::ostream& stream, const std::string& program_name) {
         << "  --risky-candidate-min-support <int>     Candidate support floor before risky evaluation (default: 5).\n"
         << "  --risky-t-sigma <float>                 Volatility threshold offset (default: 0.03).\n"
         << "  --risky-delta-max <float>               Bounded mean penalty threshold (default: 0.05).\n"
+        << "  --risky-mu-floor <float>                Absolute floor for candidate mean utility (default: 0.42).\n"
         << "  --risky-n-min <int>                     Adequacy sample floor for confidence checks (default: 150).\n"
-        << "  --risky-significance-z <float>          One-sided confidence z threshold (default: 1.645).\n"
-        << "  --emit-risky-gambit-scope               Emit risky_gambit scope rows (default on).\n"
+        << "  --risky-r-min <int>                     Minimum supported opponent reply breadth (default: 2).\n"
+        << "  --risky-k <float>                       Optimistic ceiling coefficient (default: 1.0).\n"
+        << "  --risky-enable-downward-pooling         Enable downward pooling policy (default on).\n"
+        << "  --risky-disable-downward-pooling        Disable downward pooling policy.\n"
+        << "  --risky-enable-downward-propagation     Enable downward propagation policy (default on).\n"
+        << "  --risky-disable-downward-propagation    Disable downward propagation policy.\n"
+        << "  --emit-risky-gambit-scope               Request risky_gambit scope rows (currently not implemented).\n"
         << "  --no-risky-gambit-scope                 Disable risky_gambit scope rows.\n"
         << "  --emit-risky-sharp-scope                Emit risky_sharp scope rows (default on).\n"
         << "  --no-risky-sharp-scope                  Disable risky_sharp scope rows.\n"

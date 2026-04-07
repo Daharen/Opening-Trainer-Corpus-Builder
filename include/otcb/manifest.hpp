@@ -106,6 +106,11 @@ struct ManifestData {
     double gambit_t_sigma = 0.0;
     double gambit_delta_max = 0.0;
     int gambit_n_min = 0;
+    int risky_candidate_min_support = 0;
+    int risky_r_min = 0;
+    double risky_mu_floor = 0.0;
+    double risky_k = 0.0;
+    bool risky_enabled = false;
     std::string pooled_band_behavior;
     bool downward_propagation_applied = false;
     std::string family_mapping_source;

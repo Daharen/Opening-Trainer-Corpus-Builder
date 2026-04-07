@@ -230,14 +230,29 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.gambit_utility.horizon_plies < 1) {
         errors.emplace_back("gambit utility horizon_plies must be at least 1.");
     }
+    if (config.gambit_utility.candidate_min_support < 1) {
+        errors.emplace_back("gambit utility candidate_min_support must be at least 1.");
+    }
     if (config.gambit_utility.n_min < 1) {
         errors.emplace_back("gambit utility n_min must be at least 1.");
+    }
+    if (config.gambit_utility.r_min < 1) {
+        errors.emplace_back("gambit utility r_min must be at least 1.");
     }
     if (config.gambit_utility.t_sigma < 0.0) {
         errors.emplace_back("gambit utility t_sigma must be non-negative.");
     }
     if (config.gambit_utility.delta_max < 0.0) {
         errors.emplace_back("gambit utility delta_max must be non-negative.");
+    }
+    if (config.gambit_utility.mu_floor < 0.0 || config.gambit_utility.mu_floor > 1.0) {
+        errors.emplace_back("gambit utility mu_floor must be in [0,1].");
+    }
+    if (config.gambit_utility.k < 0.0) {
+        errors.emplace_back("gambit utility k must be non-negative.");
+    }
+    if (config.gambit_utility.emit_scope_risky_gambit) {
+        errors.emplace_back("risky_gambit scope is not implemented in this revision; disable --emit-risky-gambit-scope.");
     }
 
     const bool input_required = !is_predecessor_master_mode && (config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts);

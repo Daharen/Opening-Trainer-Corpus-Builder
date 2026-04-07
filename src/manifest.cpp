@@ -65,15 +65,20 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
     manifest.compatibility_payload_format = config.payload_format == PayloadFormat::ExactSqliteV2Compact && config.emit_legacy_sqlite_mirror ? "sqlite_v1_legacy_mirror" : "";
     manifest.compatibility_payload_emitted = config.payload_format == PayloadFormat::ExactSqliteV2Compact && config.emit_legacy_sqlite_mirror;
     manifest.compatibility_payload_semantics_identical = manifest.compatibility_payload_emitted;
-    manifest.continuation_policy_variants = {"strict", "lenient"};
+    manifest.continuation_policy_variants = config.gambit_utility.continuation_policies;
     manifest.gambit_horizon_plies = config.gambit_utility.horizon_plies;
-    manifest.significance_method = "one_sided_95pct_lower_bound_gt_zero";
+    manifest.significance_method = "adequacy_plus_threshold_gates";
     manifest.gambit_t_sigma = config.gambit_utility.t_sigma;
     manifest.gambit_delta_max = config.gambit_utility.delta_max;
     manifest.gambit_n_min = config.gambit_utility.n_min;
-    manifest.pooled_band_behavior = "downward_pooling_then_locked_downward_propagation";
-    manifest.downward_propagation_applied = true;
-    manifest.family_mapping_source = "builder_named_families_v1";
+    manifest.risky_candidate_min_support = config.gambit_utility.candidate_min_support;
+    manifest.risky_r_min = config.gambit_utility.r_min;
+    manifest.risky_mu_floor = config.gambit_utility.mu_floor;
+    manifest.risky_k = config.gambit_utility.k;
+    manifest.risky_enabled = config.gambit_utility.enabled;
+    manifest.pooled_band_behavior = config.gambit_utility.enable_downward_pooling ? "enabled" : "disabled";
+    manifest.downward_propagation_applied = config.gambit_utility.enable_downward_propagation;
+    manifest.family_mapping_source = "optional_annotation_only";
     manifest.gambit_eligibility_policy = to_string(*config.rating_policy);
     manifest.position_key_format = config.position_key_format.has_value() ? to_string(*config.position_key_format) : "not_yet_implemented_scaffold_position_keys";
     manifest.move_key_format = config.move_key_format.has_value() ? to_string(*config.move_key_format) : "not_yet_implemented_scaffold_move_keys";
@@ -164,7 +169,7 @@ ManifestData make_manifest_data(const BuildConfig& config, const BuildPlan& plan
             manifest.payload_files.push_back(aggregation_summary->canonical_predecessor_payload_file);
         }
         if (aggregation_summary->gambit_companion_emitted) {
-            manifest.companion_payload_role = "ordinary_acceptance_and_gambit_utility";
+            manifest.companion_payload_role = "risky_companion_retained_depth_overlay";
             manifest.companion_payload_file = aggregation_summary->gambit_companion_payload_file;
             manifest.companion_payload_format = aggregation_summary->gambit_companion_payload_format;
             manifest.gambit_companion_ordinary_rows = aggregation_summary->gambit_companion_ordinary_rows;
@@ -291,6 +296,11 @@ std::string render_manifest_json(const ManifestData& manifest) {
     output << "  \"gambit_t_sigma\": " << manifest.gambit_t_sigma << ",\n";
     output << "  \"gambit_delta_max\": " << manifest.gambit_delta_max << ",\n";
     output << "  \"gambit_n_min\": " << manifest.gambit_n_min << ",\n";
+    output << "  \"risky_enabled\": " << (manifest.risky_enabled ? "true" : "false") << ",\n";
+    output << "  \"risky_candidate_min_support\": " << manifest.risky_candidate_min_support << ",\n";
+    output << "  \"risky_r_min\": " << manifest.risky_r_min << ",\n";
+    output << "  \"risky_mu_floor\": " << manifest.risky_mu_floor << ",\n";
+    output << "  \"risky_k\": " << manifest.risky_k << ",\n";
     output << "  \"gambit_eligibility_policy\": \"" << json_escape(manifest.gambit_eligibility_policy) << "\",\n";
     output << "  \"pooled_band_behavior\": \"" << json_escape(manifest.pooled_band_behavior) << "\",\n";
     output << "  \"downward_propagation_applied\": " << (manifest.downward_propagation_applied ? "true" : "false") << ",\n";
