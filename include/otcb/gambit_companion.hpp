@@ -6,6 +6,7 @@
 
 #include "otcb/aggregation.hpp"
 #include "otcb/config.hpp"
+#include "otcb/progress.hpp"
 
 namespace otcb {
 
@@ -18,12 +19,14 @@ struct GambitCompanionWriteStats {
     int acceptance_rows = 0;
     int unresolved_rows = 0;
     int admitted_rows = 0;
+    int rejected_rows = 0;
 };
 
 GambitCompanionWriteStats write_gambit_companion_sqlite(
     const std::filesystem::path& sqlite_path,
     const BuildConfig& config,
     const AggregationSummary& summary,
-    const std::vector<AggregatedPositionRecord>& positions);
+    const std::vector<AggregatedPositionRecord>& positions,
+    ProgressReporter* progress = nullptr);
 
 }  // namespace otcb

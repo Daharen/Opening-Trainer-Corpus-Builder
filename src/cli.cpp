@@ -184,10 +184,15 @@ CliParseResult parse_cli(int argc, char** argv) {
             if (arg == "--risky-candidate-min-support") { result.config.gambit_utility.candidate_min_support = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
             if (arg == "--risky-t-sigma") { result.config.gambit_utility.t_sigma = std::stod(require_value(argc, argv, index, arg)); continue; }
             if (arg == "--risky-delta-max") { result.config.gambit_utility.delta_max = std::stod(require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--risky-mu-floor") { result.config.gambit_utility.mu_floor = std::stod(require_value(argc, argv, index, arg)); continue; }
             if (arg == "--risky-n-min") { result.config.gambit_utility.n_min = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
-            if (arg == "--risky-significance-z") { result.config.gambit_utility.significance_z = std::stod(require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--risky-r-min") { result.config.gambit_utility.r_min = parse_int_argument(arg, require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--risky-k") { result.config.gambit_utility.k = std::stod(require_value(argc, argv, index, arg)); continue; }
+            if (arg == "--risky-enable-downward-pooling") { result.config.gambit_utility.enable_downward_pooling = true; continue; }
+            if (arg == "--risky-disable-downward-pooling") { result.config.gambit_utility.enable_downward_pooling = false; continue; }
+            if (arg == "--risky-enable-downward-propagation") { result.config.gambit_utility.enable_downward_propagation = true; continue; }
+            if (arg == "--risky-disable-downward-propagation") { result.config.gambit_utility.enable_downward_propagation = false; continue; }
             if (arg == "--emit-risky-gambit-scope") { result.config.gambit_utility.emit_scope_risky_gambit = true; continue; }
-            if (arg == "--no-risky-gambit-scope") { result.config.gambit_utility.emit_scope_risky_gambit = false; continue; }
             if (arg == "--emit-risky-sharp-scope") { result.config.gambit_utility.emit_scope_risky_sharp = true; continue; }
             if (arg == "--no-risky-sharp-scope") { result.config.gambit_utility.emit_scope_risky_sharp = false; continue; }
             if (arg == "--risky-continuation-policies") { result.config.gambit_utility.continuation_policies = parse_csv_list(require_value(argc, argv, index, arg)); continue; }
@@ -262,18 +267,23 @@ void print_usage(std::ostream& stream, const std::string& program_name) {
         << "  --no-legacy-sqlite-mirror               Disable transitional legacy data/corpus.sqlite mirror when using compact v2 payload.\n"
         << "  --emit-canonical-predecessors           Emit canonical predecessor edge companion payload (default on for aggregate-counts).\n"
         << "  --no-canonical-predecessors             Disable canonical predecessor edge companion payload emission.\n"
-        << "  --enable-risky-companion                Emit compact risky overlay companion sqlite payload (default on).\n"
+        << "  --enable-risky-companion                Emit compact risky companion sqlite payload (default on).\n"
         << "  --disable-risky-companion               Disable risky companion payload emission.\n"
         << "  --risky-horizon-plies <int>             Horizon for risky overlay recursion (default: 6).\n"
         << "  --risky-candidate-min-support <int>     Candidate support floor before risky evaluation (default: 5).\n"
-        << "  --risky-t-sigma <float>                 Volatility threshold offset (default: 0.03).\n"
-        << "  --risky-delta-max <float>               Bounded mean penalty threshold (default: 0.05).\n"
-        << "  --risky-n-min <int>                     Adequacy sample floor for confidence checks (default: 150).\n"
-        << "  --risky-significance-z <float>          One-sided confidence z threshold (default: 1.645).\n"
-        << "  --emit-risky-gambit-scope               Emit risky_gambit scope rows (default on).\n"
-        << "  --no-risky-gambit-scope                 Disable risky_gambit scope rows.\n"
+        << "  --risky-t-sigma <float>                 Variance-surplus threshold offset (default: 0.03).\n"
+        << "  --risky-delta-max <float>               Bounded mean-penalty threshold (default: 0.05).\n"
+        << "  --risky-mu-floor <float>                Absolute utility floor (default: 0.42).\n"
+        << "  --risky-n-min <int>                     Minimum sample count after entry (default: 150).\n"
+        << "  --risky-r-min <int>                     Minimum supported opponent replies (default: 2).\n"
+        << "  --risky-k <float>                       Optimistic ceiling coefficient (default: 1.0).\n"
+        << "  --risky-enable-downward-pooling         Enable downward pooling policy (default on).\n"
+        << "  --risky-disable-downward-pooling        Disable downward pooling policy.\n"
+        << "  --risky-enable-downward-propagation     Enable downward propagation policy (default on).\n"
+        << "  --risky-disable-downward-propagation    Disable downward propagation policy.\n"
         << "  --emit-risky-sharp-scope                Emit risky_sharp scope rows (default on).\n"
         << "  --no-risky-sharp-scope                  Disable risky_sharp scope rows.\n"
+        << "  --emit-risky-gambit-scope               Reserved flag; not implemented in this revision.\n"
         << "  --risky-continuation-policies <csv>     Continuation policy variants to emit (default: strict,lenient).\n"
         << "  --time-controls <value[,value...]>      Exact PGN TimeControl filter(s) enforced during ingestion for aggregate-counts (for example, 600+0).\n"
         << "  --time-control-id <value>               Canonical time-control contract id (for example, 600+0).\n"

@@ -37,6 +37,8 @@ def build(binary: Path, workspace: Path, out_dir: Path):
         "--initial-time-seconds", "600",
         "--increment-seconds", "0",
         "--time-format-label", "Rapid",
+        "--enable-risky-companion",
+        "--emit-risky-sharp-scope",
     ]
     run(cmd)
 
@@ -46,9 +48,9 @@ def collect_signature(sqlite_path: Path):
     try:
         rows = con.execute(
             """
-            select band_id, policy_variant, position_key, move_key, family_id, allowed, resolution_reason_code
-            from gambit_acceptance_by_band
-            order by band_id, policy_variant, position_key, move_key
+            select band_id, policy_variant, scope_variant, position_key, move_key, allowed, reason_code
+            from risky_acceptance_by_band
+            order by band_id, policy_variant, scope_variant, position_key, move_key
             """
         ).fetchall()
         return rows
@@ -62,39 +64,37 @@ def main():
     binary = Path(sys.argv[1]).resolve()
     workspace = Path(sys.argv[2]).resolve()
 
-    out_a = workspace / "out_gambit_companion_a"
-    out_b = workspace / "out_gambit_companion_b"
+    out_a = workspace / "out_risky_companion_a"
+    out_b = workspace / "out_risky_companion_b"
     build(binary, workspace, out_a)
     build(binary, workspace, out_b)
 
     bundle_a = next(out_a.iterdir())
     bundle_b = next(out_b.iterdir())
     manifest = json.loads((bundle_a / "manifest.json").read_text())
-    if manifest.get("companion_payload_role") != "ordinary_acceptance_and_gambit_utility":
-        raise SystemExit("manifest missing companion payload role")
+    if manifest.get("companion_payload_role") != "risky_companion_ordinary_fail_admission":
+        raise SystemExit("manifest missing risky companion payload role")
 
-    companion_a = bundle_a / "data" / "gambit_acceptance_companion.sqlite"
-    companion_b = bundle_b / "data" / "gambit_acceptance_companion.sqlite"
+    companion_a = bundle_a / "data" / "risky_acceptance_companion.sqlite"
+    companion_b = bundle_b / "data" / "risky_acceptance_companion.sqlite"
     if not companion_a.exists() or not companion_b.exists():
-        raise SystemExit("companion sqlite missing")
+        raise SystemExit("risky companion sqlite missing")
 
     con = sqlite3.connect(companion_a)
     try:
         ordinary = con.execute("select count(*) from ordinary_move_acceptance_by_band").fetchone()[0]
         baseline = con.execute("select count(*) from opening_variance_baseline_by_band").fetchone()[0]
-        families = con.execute("select count(*) from gambit_family_map").fetchone()[0]
-        metrics = con.execute("select count(*) from gambit_entry_metrics").fetchone()[0]
-        acceptance = con.execute("select count(*) from gambit_acceptance_by_band").fetchone()[0]
-        strict = con.execute("select count(*) from gambit_entry_metrics where policy_variant='strict'").fetchone()[0]
-        lenient = con.execute("select count(*) from gambit_entry_metrics where policy_variant='lenient'").fetchone()[0]
-        audit = con.execute("select count(*) from gambit_acceptance_audit").fetchone()[0]
-        if min(ordinary, baseline, families, metrics, acceptance, strict, lenient, audit) <= 0:
-            raise SystemExit("one or more companion tables/views are empty")
+        metrics = con.execute("select count(*) from risky_entry_metrics").fetchone()[0]
+        acceptance = con.execute("select count(*) from risky_acceptance_by_band").fetchone()[0]
+        if min(ordinary, baseline) <= 0:
+            raise SystemExit("required risky companion base tables are empty")
+        if metrics != acceptance:
+            raise SystemExit("risky metrics and acceptance row counts diverged")
     finally:
         con.close()
 
     if collect_signature(companion_a) != collect_signature(companion_b):
-        raise SystemExit("companion payload is not deterministic across reruns")
+        raise SystemExit("risky companion payload is not deterministic across reruns")
 
 
 if __name__ == "__main__":

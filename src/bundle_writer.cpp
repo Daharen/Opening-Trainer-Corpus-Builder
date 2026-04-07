@@ -170,12 +170,13 @@ BundleWriteResult write_bundle(
         manifest_aggregation_summary = &enriched_aggregation_summary;
     }
 
-    if (aggregate_positions != nullptr && aggregation_summary != nullptr) {
+    if (aggregate_positions != nullptr && aggregation_summary != nullptr && config.gambit_utility.enabled) {
         const auto gambit_stats = write_gambit_companion_sqlite(
-            data_dir / "gambit_acceptance_companion.sqlite",
+            data_dir / "risky_acceptance_companion.sqlite",
             config,
             *aggregation_summary,
-            *aggregate_positions);
+            *aggregate_positions,
+            progress);
         enriched_aggregation_summary.gambit_companion_payload_file = gambit_stats.payload_file;
         enriched_aggregation_summary.gambit_companion_payload_format = "sqlite";
         enriched_aggregation_summary.gambit_companion_emitted = true;

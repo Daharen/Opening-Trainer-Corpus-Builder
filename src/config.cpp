@@ -228,16 +228,34 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
         errors.emplace_back("--batch-size must be at least 1.");
     }
     if (config.gambit_utility.horizon_plies < 1) {
-        errors.emplace_back("gambit utility horizon_plies must be at least 1.");
+        errors.emplace_back("risky companion horizon_plies must be at least 1.");
+    }
+    if (config.gambit_utility.candidate_min_support < 1) {
+        errors.emplace_back("risky companion candidate_min_support must be at least 1.");
     }
     if (config.gambit_utility.n_min < 1) {
-        errors.emplace_back("gambit utility n_min must be at least 1.");
+        errors.emplace_back("risky companion n_min must be at least 1.");
+    }
+    if (config.gambit_utility.r_min < 1) {
+        errors.emplace_back("risky companion r_min must be at least 1.");
     }
     if (config.gambit_utility.t_sigma < 0.0) {
-        errors.emplace_back("gambit utility t_sigma must be non-negative.");
+        errors.emplace_back("risky companion t_sigma must be non-negative.");
     }
     if (config.gambit_utility.delta_max < 0.0) {
-        errors.emplace_back("gambit utility delta_max must be non-negative.");
+        errors.emplace_back("risky companion delta_max must be non-negative.");
+    }
+    if (config.gambit_utility.k < 0.0) {
+        errors.emplace_back("risky companion k must be non-negative.");
+    }
+    if (config.gambit_utility.mu_floor < 0.0 || config.gambit_utility.mu_floor > 1.0) {
+        errors.emplace_back("risky companion mu_floor must be in [0, 1].");
+    }
+    if (config.gambit_utility.enabled && config.gambit_utility.emit_scope_risky_gambit) {
+        errors.emplace_back("--emit-risky-gambit-scope is not implemented in this revision.");
+    }
+    if (config.gambit_utility.enabled && !config.gambit_utility.emit_scope_risky_sharp) {
+        errors.emplace_back("risky companion enabled but no supported scope is enabled; risky_sharp scope is required in this revision.");
     }
 
     const bool input_required = !is_predecessor_master_mode && (config.dry_run || config.mode == BuildMode::Preflight || config.mode == BuildMode::PlanRanges || config.mode == BuildMode::ScanHeaders || config.mode == BuildMode::ExtractOpenings || config.mode == BuildMode::AggregateCounts);
@@ -276,6 +294,10 @@ std::vector<std::string> validate_config(const BuildConfig& config) {
     if (config.mode == BuildMode::AggregateCounts && config.time_controls.size() != 1) {
         errors.emplace_back("--time-controls currently requires exactly one exact time control for final corpus bundle generation.");
     }
+    if (config.gambit_utility.enabled && config.gambit_utility.continuation_policies.empty()) {
+        errors.emplace_back("--risky-continuation-policies must include at least one policy when risky companion is enabled.");
+    }
+
     if (config.mode == BuildMode::BuildPredecessorMaster) {
         if (config.master_output.empty()) {
             errors.emplace_back("--master-output is required for build-predecessor-master.");
