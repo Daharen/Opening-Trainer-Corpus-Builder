@@ -154,6 +154,28 @@ else()
 endif()
 target_link_libraries(inspect-compact-corpus PRIVATE ${OTCB_SQLITE_TARGET})
 
+add_executable(probe-seeded-practical-risk
+    src/probe_seeded_practical_risk_main.cpp
+    src/seeded_practical_risk_probe.cpp
+    src/chess_types.cpp
+    src/chess_board.cpp
+    src/san_replay.cpp
+    src/position_key.cpp
+    src/rating_filter.cpp
+    src/progress.cpp
+    src/config.cpp
+)
+target_include_directories(probe-seeded-practical-risk
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(MSVC)
+    target_compile_options(probe-seeded-practical-risk PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(probe-seeded-practical-risk PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+target_link_libraries(probe-seeded-practical-risk PRIVATE ${OTCB_SQLITE_TARGET})
+
 if(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD)
     find_package(zstd QUIET CONFIG)
     if(TARGET zstd::libzstd_shared)
@@ -239,5 +261,10 @@ if(BUILD_TESTING)
                 $<TARGET_FILE:build-behavioral-training-extract>
                 $<TARGET_FILE:build-behavioral-profiles>
                 ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME seeded_practical_risk_probe_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_seeded_practical_risk_probe.py
+                $<TARGET_FILE:probe-seeded-practical-risk> ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

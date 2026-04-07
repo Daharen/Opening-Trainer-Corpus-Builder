@@ -21,6 +21,8 @@ enum class ProgressStage {
     ExtractOpenings,
     AggregateCounts,
     ComputeRiskyOverlay,
+    SeedProbeScan,
+    SeedProbeEvaluate,
     WriteArtifacts,
     Finalize,
 };
@@ -69,6 +71,11 @@ struct ProgressSnapshot {
     int risky_pooling_events = 0;
     double risky_memo_hit_rate = 0.0;
     std::optional<int> risky_estimated_remaining_work;
+    int probe_games_in_scope = 0;
+    int probe_games_reaching_any = 0;
+    int probe_nodes_built = 0;
+    int probe_entries_evaluated = 0;
+    std::string probe_current_id;
     std::string last_event_message;
 };
 
