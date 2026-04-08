@@ -66,6 +66,8 @@ std::string to_string(const ProgressStage stage) {
         case ProgressStage::Preflight: return "preflight";
         case ProgressStage::PlanRanges: return "plan-ranges";
         case ProgressStage::ScanHeaders: return "scan-headers";
+        case ProgressStage::AggregateEmpiricalScreen: return "aggregate-empirical-screen";
+        case ProgressStage::EngineBaselineScreen: return "engine-baseline-screen";
         case ProgressStage::ExtractOpenings: return "extract-openings";
         case ProgressStage::AggregateCounts: return "aggregate-counts";
         case ProgressStage::ComputeRiskyOverlay: return "compute-risky-overlay";

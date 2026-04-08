@@ -18,6 +18,8 @@ enum class ProgressStage {
     Preflight,
     PlanRanges,
     ScanHeaders,
+    AggregateEmpiricalScreen,
+    EngineBaselineScreen,
     ExtractOpenings,
     AggregateCounts,
     ComputeRiskyOverlay,

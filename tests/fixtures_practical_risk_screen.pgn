@@ -1,0 +1,116 @@
+[Event "g1"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 2. Nf3 Nc6 1-0
+
+[Event "g2"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1/2-1/2"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 2. Nf3 Nc6 1/2-1/2
+
+[Event "g3"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1/2-1/2"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 2. Nf3 Nc6 1/2-1/2
+
+[Event "g4"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1/2-1/2"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 2. Nf3 Nc6 1/2-1/2
+
+[Event "g5"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 d5 2. c4 c6 1-0
+
+[Event "g6"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 d5 2. c4 c6 1-0
+
+[Event "g7"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "0-1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 d5 2. c4 c6 0-1
+
+[Event "g8"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "0-1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 d5 2. c4 c6 0-1
+
+[Event "g9"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1/2-1/2"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 2. Nf3 Nc6 1/2-1/2

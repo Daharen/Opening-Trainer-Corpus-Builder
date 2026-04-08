@@ -1,0 +1,51 @@
+[Event "h1"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 1-0
+
+[Event "h2"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 1-0
+
+[Event "h3"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "0-1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 1-0
+
+[Event "h4"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "0-1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 d5 0-1
