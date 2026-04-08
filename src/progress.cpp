@@ -71,6 +71,8 @@ std::string to_string(const ProgressStage stage) {
         case ProgressStage::ComputeRiskyOverlay: return "compute-risky-overlay";
         case ProgressStage::SeedProbeScan: return "seed-probe-scan";
         case ProgressStage::SeedProbeEvaluate: return "seed-probe-evaluate";
+        case ProgressStage::AggregateEmpiricalScreen: return "aggregate-empirical-screen";
+        case ProgressStage::EngineBaselineScreen: return "engine-baseline-screen";
         case ProgressStage::WriteArtifacts: return "write-artifacts";
         case ProgressStage::Finalize: return "finalize";
     }

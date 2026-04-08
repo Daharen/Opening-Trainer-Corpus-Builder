@@ -23,6 +23,8 @@ enum class ProgressStage {
     ComputeRiskyOverlay,
     SeedProbeScan,
     SeedProbeEvaluate,
+    AggregateEmpiricalScreen,
+    EngineBaselineScreen,
     WriteArtifacts,
     Finalize,
 };
