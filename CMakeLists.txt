@@ -176,28 +176,6 @@ else()
 endif()
 target_link_libraries(probe-seeded-practical-risk PRIVATE ${OTCB_SQLITE_TARGET})
 
-add_executable(screen-practical-risk-candidates
-    src/practical_risk_screen_main.cpp
-    src/practical_risk_screen.cpp
-    src/chess_types.cpp
-    src/chess_board.cpp
-    src/san_replay.cpp
-    src/position_key.cpp
-    src/rating_filter.cpp
-    src/progress.cpp
-    src/config.cpp
-)
-target_include_directories(screen-practical-risk-candidates
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-if(MSVC)
-    target_compile_options(screen-practical-risk-candidates PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(screen-practical-risk-candidates PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-target_link_libraries(screen-practical-risk-candidates PRIVATE ${OTCB_SQLITE_TARGET})
-
 if(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD)
     find_package(zstd QUIET CONFIG)
     if(TARGET zstd::libzstd_shared)
@@ -288,10 +266,5 @@ if(BUILD_TESTING)
         NAME seeded_practical_risk_probe_validation
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_seeded_practical_risk_probe.py
                 $<TARGET_FILE:probe-seeded-practical-risk> ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-    add_test(
-        NAME practical_risk_screen_validation
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_practical_risk_screen.py
-                $<TARGET_FILE:screen-practical-risk-candidates> ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()
