@@ -23,9 +23,14 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#else
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #include <sqlite3.h>
 
@@ -291,6 +296,73 @@ private:
 class UciEngine {
 public:
     UciEngine(const std::filesystem::path& path, int hash_mb, int threads) {
+#ifdef _WIN32
+        SECURITY_ATTRIBUTES sa{};
+        sa.nLength = sizeof(sa);
+        sa.bInheritHandle = TRUE;
+        sa.lpSecurityDescriptor = nullptr;
+
+        HANDLE child_stdout_read = nullptr;
+        HANDLE child_stdout_write = nullptr;
+        HANDLE child_stdin_read = nullptr;
+        HANDLE child_stdin_write = nullptr;
+        if (!CreatePipe(&child_stdout_read, &child_stdout_write, &sa, 0)) {
+            throw std::runtime_error("failed to create engine stdout pipe");
+        }
+        if (!SetHandleInformation(child_stdout_read, HANDLE_FLAG_INHERIT, 0)) {
+            CloseHandle(child_stdout_read);
+            CloseHandle(child_stdout_write);
+            throw std::runtime_error("failed to configure engine stdout pipe inheritance");
+        }
+        if (!CreatePipe(&child_stdin_read, &child_stdin_write, &sa, 0)) {
+            CloseHandle(child_stdout_read);
+            CloseHandle(child_stdout_write);
+            throw std::runtime_error("failed to create engine stdin pipe");
+        }
+        if (!SetHandleInformation(child_stdin_write, HANDLE_FLAG_INHERIT, 0)) {
+            CloseHandle(child_stdout_read);
+            CloseHandle(child_stdout_write);
+            CloseHandle(child_stdin_read);
+            CloseHandle(child_stdin_write);
+            throw std::runtime_error("failed to configure engine stdin pipe inheritance");
+        }
+
+        std::wstring command = build_windows_command(path);
+
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.hStdError = child_stdout_write;
+        startup.hStdOutput = child_stdout_write;
+        startup.hStdInput = child_stdin_read;
+        startup.dwFlags |= STARTF_USESTDHANDLES;
+
+        PROCESS_INFORMATION process{};
+        std::vector<wchar_t> cmdline(command.begin(), command.end());
+        cmdline.push_back(L'\0');
+        if (!CreateProcessW(
+                nullptr,
+                cmdline.data(),
+                nullptr,
+                nullptr,
+                TRUE,
+                0,
+                nullptr,
+                nullptr,
+                &startup,
+                &process)) {
+            CloseHandle(child_stdout_read);
+            CloseHandle(child_stdout_write);
+            CloseHandle(child_stdin_read);
+            CloseHandle(child_stdin_write);
+            throw std::runtime_error("failed to launch engine process");
+        }
+        CloseHandle(process.hThread);
+        process_handle_ = process.hProcess;
+        write_handle_ = child_stdin_write;
+        read_handle_ = child_stdout_read;
+        CloseHandle(child_stdout_write);
+        CloseHandle(child_stdin_read);
+#else
         int in_pipe[2]{-1, -1};
         int out_pipe[2]{-1, -1};
         if (pipe(in_pipe) != 0 || pipe(out_pipe) != 0) {
@@ -318,6 +390,7 @@ public:
         if (!write_fp_ || !read_fp_) {
             throw std::runtime_error("failed to open engine stdio streams");
         }
+#endif
         send("uci");
         read_until("uciok");
         send("setoption name Hash value " + std::to_string(hash_mb));
@@ -327,8 +400,30 @@ public:
     }
 
     ~UciEngine() {
+#ifdef _WIN32
+        if (write_handle_ != nullptr) {
+            try {
+                send("quit");
+            } catch (...) {
+            }
+            CloseHandle(write_handle_);
+            write_handle_ = nullptr;
+        }
+        if (read_handle_ != nullptr) {
+            CloseHandle(read_handle_);
+            read_handle_ = nullptr;
+        }
+        if (process_handle_ != nullptr) {
+            WaitForSingleObject(process_handle_, INFINITE);
+            CloseHandle(process_handle_);
+            process_handle_ = nullptr;
+        }
+#else
         if (write_fp_) {
-            send("quit");
+            try {
+                send("quit");
+            } catch (...) {
+            }
             fclose(write_fp_);
             write_fp_ = nullptr;
         }
@@ -341,6 +436,7 @@ public:
             waitpid(child_pid_, &status, 0);
             child_pid_ = -1;
         }
+#endif
     }
 
     std::string engine_id() const { return engine_id_; }
@@ -356,16 +452,23 @@ public:
 
 private:
     void send(const std::string& cmd) {
+#ifdef _WIN32
+        const std::string line = cmd + "\n";
+        DWORD written = 0;
+        if (!WriteFile(write_handle_, line.data(), static_cast<DWORD>(line.size()), &written, nullptr) ||
+            written != line.size()) {
+            throw std::runtime_error("failed writing command to engine process");
+        }
+#else
         std::fprintf(write_fp_, "%s\n", cmd.c_str());
         std::fflush(write_fp_);
+#endif
     }
 
     void read_until(const std::string& token) {
-        std::array<char, 4096> buf{};
-        while (std::fgets(buf.data(), static_cast<int>(buf.size()), read_fp_)) {
-            std::string line = trim(std::string(buf.data()));
-            if (line.rfind("id name ", 0) == 0) engine_id_ = line.substr(8);
-            if (line == token) return;
+        while (auto line = read_line()) {
+            if (line->rfind("id name ", 0) == 0) engine_id_ = line->substr(8);
+            if (*line == token) return;
         }
         throw std::runtime_error("engine stream ended before token: " + token);
     }
@@ -392,21 +495,78 @@ private:
     }
 
     double read_score_until_bestmove() {
-        std::array<char, 4096> buf{};
         double last_score = 0.0;
-        while (std::fgets(buf.data(), static_cast<int>(buf.size()), read_fp_)) {
-            std::string line = trim(std::string(buf.data()));
-            if (line.rfind("info ", 0) == 0 && line.find(" score ") != std::string::npos) {
-                last_score = parse_score(line);
+        while (auto line = read_line()) {
+            if (line->rfind("info ", 0) == 0 && line->find(" score ") != std::string::npos) {
+                last_score = parse_score(*line);
             }
-            if (line.rfind("bestmove ", 0) == 0) return last_score;
+            if (line->rfind("bestmove ", 0) == 0) return last_score;
         }
         throw std::runtime_error("engine stream ended before bestmove");
     }
 
+    std::optional<std::string> read_line() {
+#ifdef _WIN32
+        std::string line;
+        while (true) {
+            char ch = '\0';
+            DWORD nread = 0;
+            BOOL ok = ReadFile(read_handle_, &ch, 1, &nread, nullptr);
+            if (!ok || nread == 0) {
+                if (line.empty()) return std::nullopt;
+                return trim(line);
+            }
+            if (ch == '\n') return trim(line);
+            if (ch != '\r') line.push_back(ch);
+        }
+#else
+        std::array<char, 4096> buf{};
+        if (!std::fgets(buf.data(), static_cast<int>(buf.size()), read_fp_)) return std::nullopt;
+        return trim(std::string(buf.data()));
+#endif
+    }
+
+#ifdef _WIN32
+    static std::wstring to_wstring(const std::string& in) {
+        if (in.empty()) return L"";
+        const int sz = MultiByteToWideChar(CP_UTF8, 0, in.c_str(), -1, nullptr, 0);
+        if (sz <= 0) throw std::runtime_error("failed UTF-8 to UTF-16 conversion");
+        std::wstring out(static_cast<std::size_t>(sz - 1), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, in.c_str(), -1, out.data(), sz);
+        return out;
+    }
+
+    static std::wstring quote_windows_arg(const std::wstring& arg) {
+        std::wstring quoted = L"\"";
+        for (const wchar_t c : arg) {
+            if (c == L'"') quoted += L"\\\"";
+            else quoted += c;
+        }
+        quoted += L"\"";
+        return quoted;
+    }
+
+    static std::wstring build_windows_command(const std::filesystem::path& path) {
+        const std::wstring path_w = path.wstring();
+        if (path.extension() == ".py") {
+            const char* python_env = std::getenv("PYTHON_EXECUTABLE");
+            if (!python_env || std::strlen(python_env) == 0) python_env = std::getenv("PYTHON");
+            const std::wstring python = to_wstring((python_env && std::strlen(python_env) > 0) ? python_env : "python");
+            return quote_windows_arg(python) + L" " + quote_windows_arg(path_w);
+        }
+        return quote_windows_arg(path_w);
+    }
+#endif
+
+#ifdef _WIN32
+    HANDLE write_handle_ = nullptr;
+    HANDLE read_handle_ = nullptr;
+    HANDLE process_handle_ = nullptr;
+#else
     FILE* write_fp_ = nullptr;
     FILE* read_fp_ = nullptr;
     pid_t child_pid_ = -1;
+#endif
     std::string engine_id_ = "unknown";
 };
 
