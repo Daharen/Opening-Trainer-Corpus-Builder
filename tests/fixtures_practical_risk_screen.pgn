@@ -1,0 +1,71 @@
+[Event "A1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "1-0"]
+
+1. e4 c5 1-0
+
+[Event "A2"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "1-0"]
+
+1. e4 c5 1-0
+
+[Event "A3"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "1/2-1/2"]
+
+1. e4 c5 1/2-1/2
+
+[Event "A4"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "0-1"]
+
+1. e4 e5 0-1
+
+[Event "A5"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "1/2-1/2"]
+
+1. e4 e5 1/2-1/2
+
+[Event "A6"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "1-0"]
+
+1. c4 e5 1-0
+
+[Event "A7"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "0-1"]
+
+1. c4 c5 0-1
+
+[Event "A8"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "0-1"]
+
+1. d4 d5 0-1
+
+[Event "A9"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+[Result "0-1"]
+
+1. d4 Nf6 0-1
