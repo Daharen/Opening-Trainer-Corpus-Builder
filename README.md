@@ -296,3 +296,17 @@ Given the same exact corpus input, profile-set input, and emitter config, output
 - Compatibility checks are intentionally strict around context scope and intentionally simple around
   policy-version semantics.
 - Runtime-side sampling/overlay application remains out of scope for this builder repo.
+
+## Practical Risk Stage A (Pre-Stockfish empirical artifact)
+
+This repo now includes a standalone Stage A executable: `build-practical-risk-prestockfish`.
+It scans raw PGN and emits an empirical-only practical-risk artifact bundle with no engine evaluation.
+
+Core outputs under `<output-dir>/<artifact-id>/`:
+- `manifest.json`
+- `build_summary.txt`
+- `summary.json`
+- `practical_risk_prestockfish.sqlite`
+- `progress/`
+
+Stage A captures root/move empirical outcomes (`wins/draws/losses`, `mu`) plus deep-line continuation volatility (`sigma_deep`) and sparse handling mode (`observed`, `shrunk_sparse`, `prior_only_sparse`) for later Stage B/C overlays without rescanning PGN.

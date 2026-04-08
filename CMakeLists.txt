@@ -199,6 +199,28 @@ else()
 endif()
 target_link_libraries(screen-practical-risk-candidates PRIVATE ${OTCB_SQLITE_TARGET})
 
+add_executable(build-practical-risk-prestockfish
+    src/practical_risk/prestockfish/build_practical_risk_prestockfish_main.cpp
+    src/practical_risk/prestockfish/practical_risk_prestockfish.cpp
+    src/chess_types.cpp
+    src/chess_board.cpp
+    src/san_replay.cpp
+    src/position_key.cpp
+    src/rating_filter.cpp
+    src/progress.cpp
+    src/config.cpp
+)
+target_include_directories(build-practical-risk-prestockfish
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(MSVC)
+    target_compile_options(build-practical-risk-prestockfish PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(build-practical-risk-prestockfish PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+target_link_libraries(build-practical-risk-prestockfish PRIVATE ${OTCB_SQLITE_TARGET})
+
 if(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD)
     find_package(zstd QUIET CONFIG)
     if(TARGET zstd::libzstd_shared)
@@ -295,5 +317,10 @@ if(BUILD_TESTING)
         NAME seeded_practical_risk_probe_validation
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_seeded_practical_risk_probe.py
                 $<TARGET_FILE:probe-seeded-practical-risk> ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME practical_risk_prestockfish_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/practical_risk/validators/validate_practical_risk_prestockfish.py
+                $<TARGET_FILE:build-practical-risk-prestockfish> ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

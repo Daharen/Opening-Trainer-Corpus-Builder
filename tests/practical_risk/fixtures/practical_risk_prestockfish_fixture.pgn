@@ -1,0 +1,155 @@
+[Event "G1"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 1-0
+
+[Event "G2"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1/2-1/2"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 1/2-1/2
+
+[Event "G3"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "0-1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 0-1
+
+[Event "G4"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "0-1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 0-1
+
+[Event "G5"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e6 2. d4 d5 3. Nc3 Nf6 1-0
+
+[Event "G6"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. e4 e6 2. d4 d5 3. Nc3 Nf6 1-0
+
+[Event "G7"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 d5 2. c4 e6 3. Nc3 Nf6 1-0
+
+[Event "G8"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "0-1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 d5 2. c4 e6 3. Nc3 Nf6 0-1
+
+[Event "G9"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1/2-1/2"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 d5 1/2-1/2
+
+[Event "G10"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1/2-1/2"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 d5 1/2-1/2
+
+[Event "G11"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "1-0"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. c4 e5 2. Nc3 Nf6 3. Nf3 Nc6 1-0
+
+[Event "G12"]
+[Site "?"]
+[Date "2026.01.01"]
+[Round "1"]
+[White "A"]
+[Black "B"]
+[Result "0-1"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "600+0"]
+
+1. c4 c5 2. Nc3 Nc6 3. Nf3 Nf6 0-1

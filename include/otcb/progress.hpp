@@ -19,6 +19,7 @@ enum class ProgressStage {
     PlanRanges,
     ScanHeaders,
     AggregateEmpiricalScreen,
+    ComputeSigmaPriors,
     EngineBaselineScreen,
     ExtractOpenings,
     AggregateCounts,
