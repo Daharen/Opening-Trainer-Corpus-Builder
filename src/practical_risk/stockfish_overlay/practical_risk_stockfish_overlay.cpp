@@ -353,8 +353,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             const ChessBoard board = *maybe_board;
             const std::string fen = board.to_fen();
 
-            const Color root_side = board.side_to_move();
-            const auto [root_best_cp_for_root_side, root_cached] = eval_at(root.position_key, fen, "");
+            const auto [root_best_cp, root_cached] = eval_at(root.position_key, fen, "");
             ++baseline_evals;
 
             std::vector<RetainedMove> candidate_moves = root.moves;
@@ -365,24 +364,20 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             for (const auto& mv : candidate_moves) {
                 auto resolved = resolve_uci_move(board, mv.move_uci);
                 if (!resolved.has_value()) continue;
-                const ChessBoard board_after_move = board.after_move(*resolved);
 
-                const auto [move_cp_raw_after_move, move_cached] = eval_at(root.position_key, fen, mv.move_uci);
+                const auto [move_cp, move_cached] = eval_at(root.position_key, fen, mv.move_uci);
                 ++candidate_evals;
-                const Color side_to_move_after_move = board_after_move.side_to_move();
-                const double move_cp_for_root_side =
-                    (side_to_move_after_move == root_side) ? move_cp_raw_after_move : -move_cp_raw_after_move;
-                const double loss_cp_for_root_side = root_best_cp_for_root_side - move_cp_for_root_side;
-                const bool accepted = loss_cp_for_root_side <= static_cast<double>(options.engine_max_loss_cp);
+                const double loss_cp = root_best_cp - move_cp;
+                const bool accepted = loss_cp <= static_cast<double>(options.engine_max_loss_cp);
 
                 move_evals.push_back(MoveEval{
                     .position_key = root.position_key,
                     .move_uci = mv.move_uci,
                     .move_support = mv.move_support,
                     .popularity_rank = mv.popularity_rank,
-                    .root_best_cp = root_best_cp_for_root_side,
-                    .move_cp = move_cp_for_root_side,
-                    .loss_cp = loss_cp_for_root_side,
+                    .root_best_cp = root_best_cp,
+                    .move_cp = move_cp,
+                    .loss_cp = loss_cp,
                     .is_engine_accepted = accepted ? 1 : 0,
                     .is_engine_fail = accepted ? 0 : 1,
                     .eval_source = (root_cached || move_cached) ? "cache_or_live" : "live",
@@ -580,8 +575,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             manifest << "  \"engine_max_loss_cp\": " << options.engine_max_loss_cp << ",\n";
             manifest << "  \"engine_reference_mode\": \"" << json_escape(options.engine_reference_mode) << "\",\n";
             manifest << "  \"baseline_prefix_limit\": " << options.baseline_prefix_limit << ",\n";
-            manifest << "  \"candidate_prefix_limit\": " << options.candidate_prefix_limit << ",\n";
-            manifest << "  \"build_notes\": [\"Stage B perspective normalization fix applied\"]\n";
+            manifest << "  \"candidate_prefix_limit\": " << options.candidate_prefix_limit << "\n";
             manifest << "}\n";
         }
 
