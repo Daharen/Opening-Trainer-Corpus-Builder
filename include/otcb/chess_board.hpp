@@ -12,6 +12,7 @@ namespace otcb {
 class ChessBoard {
 public:
     ChessBoard();
+    [[nodiscard]] static std::optional<ChessBoard> from_fen(const std::string& fen);
 
     [[nodiscard]] Color side_to_move() const;
     [[nodiscard]] Piece piece_at(int square) const;

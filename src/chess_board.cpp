@@ -1,5 +1,6 @@
 #include "otcb/chess_board.hpp"
 
+#include <cctype>
 #include <sstream>
 
 namespace otcb {
@@ -39,6 +40,55 @@ ChessBoard::ChessBoard() {
         board_[file] = Piece{back_rank[file], Color::White};
         board_[56 + file] = Piece{back_rank[file], Color::Black};
     }
+}
+
+std::optional<ChessBoard> ChessBoard::from_fen(const std::string& fen) {
+    std::istringstream in(fen);
+    std::string board_field;
+    std::string side_field;
+    std::string castling_field;
+    std::string ep_field;
+    int halfmove = 0;
+    int fullmove = 1;
+    if (!(in >> board_field >> side_field >> castling_field >> ep_field >> halfmove >> fullmove)) return std::nullopt;
+
+    ChessBoard board;
+    board.board_.fill(Piece{});
+    int square = 56;
+    for (const char ch : board_field) {
+        if (ch == '/') {
+            square -= 16;
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(ch))) {
+            square += (ch - '0');
+            continue;
+        }
+        if (square < 0 || square >= 64) return std::nullopt;
+        const bool is_white = std::isupper(static_cast<unsigned char>(ch));
+        const char lower = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        PieceType type = PieceType::None;
+        if (lower == 'p') type = PieceType::Pawn;
+        else if (lower == 'n') type = PieceType::Knight;
+        else if (lower == 'b') type = PieceType::Bishop;
+        else if (lower == 'r') type = PieceType::Rook;
+        else if (lower == 'q') type = PieceType::Queen;
+        else if (lower == 'k') type = PieceType::King;
+        else return std::nullopt;
+        board.board_[square] = Piece{type, is_white ? Color::White : Color::Black};
+        ++square;
+    }
+    if (side_field != "w" && side_field != "b") return std::nullopt;
+    board.side_to_move_ = side_field == "w" ? Color::White : Color::Black;
+    board.white_can_castle_kingside_ = castling_field.find('K') != std::string::npos;
+    board.white_can_castle_queenside_ = castling_field.find('Q') != std::string::npos;
+    board.black_can_castle_kingside_ = castling_field.find('k') != std::string::npos;
+    board.black_can_castle_queenside_ = castling_field.find('q') != std::string::npos;
+    board.en_passant_target_ = (ep_field == "-") ? std::nullopt : std::optional<int>(square_from_string(ep_field));
+    if (board.en_passant_target_.has_value() && *board.en_passant_target_ < 0) return std::nullopt;
+    board.halfmove_clock_ = halfmove;
+    board.fullmove_number_ = fullmove;
+    return board;
 }
 
 Color ChessBoard::side_to_move() const { return side_to_move_; }
