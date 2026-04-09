@@ -54,6 +54,7 @@ struct MoveEval {
     int popularity_rank = 0;
     double root_best_cp = 0.0;
     double move_cp = 0.0;
+    double raw_loss_cp = 0.0;
     double loss_cp = 0.0;
     int is_engine_accepted = 0;
     int is_engine_fail = 0;
@@ -84,29 +85,14 @@ struct PriorAccumulator {
 
 constexpr double kScoreInvariantEpsilon = 1e-9;
 
-enum class MoveClassification {
-    Accepted,
-    FailedAboveThreshold,
-    NegativeLossAnomaly,
-};
-
 struct ClassifiedMoveEval {
     MoveEval row;
-    MoveClassification classification = MoveClassification::FailedAboveThreshold;
     double raw_root_best_cp = 0.0;
     double raw_post_move_cp = 0.0;
     double normalized_move_cp_for_root_side = 0.0;
-    double computed_loss_cp = 0.0;
+    double raw_loss_cp = 0.0;
+    double effective_loss_cp = 0.0;
 };
-
-std::string to_string(MoveClassification classification) {
-    switch (classification) {
-        case MoveClassification::Accepted: return "accepted";
-        case MoveClassification::FailedAboveThreshold: return "failed_above_threshold";
-        case MoveClassification::NegativeLossAnomaly: return "negative_loss_anomaly";
-    }
-    return "failed_above_threshold";
-}
 
 std::string color_to_string(Color c) {
     return c == Color::White ? "white" : "black";
@@ -121,17 +107,10 @@ ClassifiedMoveEval make_validated_move_eval_row(const RootData& root,
                                                 int engine_max_loss_cp) {
     const double root_best_cp_for_root_side = raw_root_best_cp;
     const double move_cp_for_root_side = -raw_post_move_cp;
-    const double computed_loss_cp = root_best_cp_for_root_side - move_cp_for_root_side;
-
-    MoveClassification classification = MoveClassification::FailedAboveThreshold;
-    if (computed_loss_cp < 0.0) {
-        classification = MoveClassification::NegativeLossAnomaly;
-    } else if (computed_loss_cp <= static_cast<double>(engine_max_loss_cp)) {
-        classification = MoveClassification::Accepted;
-    }
-
-    const bool accepted = classification == MoveClassification::Accepted;
-    const bool failed = classification == MoveClassification::FailedAboveThreshold;
+    const double computed_raw_loss_cp = root_best_cp_for_root_side - move_cp_for_root_side;
+    const double computed_effective_loss_cp = std::max(0.0, computed_raw_loss_cp);
+    const bool accepted = computed_effective_loss_cp <= static_cast<double>(engine_max_loss_cp);
+    const bool failed = computed_effective_loss_cp > static_cast<double>(engine_max_loss_cp);
 
     MoveEval row{
         .position_key = root.position_key,
@@ -140,22 +119,35 @@ ClassifiedMoveEval make_validated_move_eval_row(const RootData& root,
         .popularity_rank = mv.popularity_rank,
         .root_best_cp = root_best_cp_for_root_side,
         .move_cp = move_cp_for_root_side,
-        .loss_cp = computed_loss_cp,
+        .raw_loss_cp = computed_raw_loss_cp,
+        .loss_cp = computed_effective_loss_cp,
         .is_engine_accepted = accepted ? 1 : 0,
         .is_engine_fail = failed ? 1 : 0,
         .eval_source = (root_cached || move_cached) ? "cache_or_live" : "live",
         .cache_hit = move_cached ? 1 : 0,
     };
-    if (std::abs(row.loss_cp - (row.root_best_cp - row.move_cp)) > kScoreInvariantEpsilon) {
-        throw std::runtime_error("stage-b invariant violation: loss_cp must equal root_best_cp - move_cp");
+    if (std::abs(row.raw_loss_cp - (row.root_best_cp - row.move_cp)) > kScoreInvariantEpsilon) {
+        throw std::runtime_error("stage-b invariant violation: raw_loss_cp must equal root_best_cp - move_cp");
+    }
+    if (std::abs(row.loss_cp - std::max(0.0, row.raw_loss_cp)) > kScoreInvariantEpsilon) {
+        throw std::runtime_error("stage-b invariant violation: loss_cp must equal max(0, raw_loss_cp)");
+    }
+    if (row.is_engine_accepted != (row.loss_cp <= static_cast<double>(engine_max_loss_cp) ? 1 : 0)) {
+        throw std::runtime_error("stage-b invariant violation: is_engine_accepted must match threshold check");
+    }
+    if (row.is_engine_fail != (row.loss_cp > static_cast<double>(engine_max_loss_cp) ? 1 : 0)) {
+        throw std::runtime_error("stage-b invariant violation: is_engine_fail must match threshold check");
+    }
+    if ((row.is_engine_accepted + row.is_engine_fail) != 1) {
+        throw std::runtime_error("stage-b invariant violation: accepted/fail must be mutually exclusive");
     }
     return ClassifiedMoveEval{
         .row = std::move(row),
-        .classification = classification,
         .raw_root_best_cp = raw_root_best_cp,
         .raw_post_move_cp = raw_post_move_cp,
         .normalized_move_cp_for_root_side = move_cp_for_root_side,
-        .computed_loss_cp = computed_loss_cp,
+        .raw_loss_cp = computed_raw_loss_cp,
+        .effective_loss_cp = computed_effective_loss_cp,
     };
 }
 
@@ -268,15 +260,15 @@ void write_negative_loss_anomaly_artifact(const std::filesystem::path& bundle_di
     out << "  \"raw_root_best_cp\": " << classified_eval.raw_root_best_cp << ",\n";
     out << "  \"raw_post_move_cp\": " << classified_eval.raw_post_move_cp << ",\n";
     out << "  \"normalized_move_cp_for_root_side\": " << classified_eval.normalized_move_cp_for_root_side << ",\n";
-    out << "  \"computed_loss_cp\": " << classified_eval.computed_loss_cp << ",\n";
+    out << "  \"raw_loss_cp\": " << classified_eval.raw_loss_cp << ",\n";
+    out << "  \"effective_loss_cp\": " << classified_eval.effective_loss_cp << ",\n";
     out << "  \"engine_max_loss_cp\": " << engine_max_loss_cp << ",\n";
     out << "  \"root_cached\": " << (root_cached ? "true" : "false") << ",\n";
     out << "  \"move_cached\": " << (move_cached ? "true" : "false") << ",\n";
     out << "  \"engine_id\": \"" << json_escape(engine_id) << "\",\n";
     out << "  \"engine_movetime_ms\": " << engine_movetime_ms << ",\n";
     out << "  \"engine_accept_policy\": \"" << json_escape(engine_accept_policy) << "\",\n";
-    out << "  \"engine_reference_mode\": \"" << json_escape(engine_reference_mode) << "\",\n";
-    out << "  \"classification\": \"" << to_string(classified_eval.classification) << "\"\n";
+    out << "  \"engine_reference_mode\": \"" << json_escape(engine_reference_mode) << "\"\n";
     out << "}\n";
 }
 
@@ -361,6 +353,10 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
     int candidate_evals = 0;
     int found_baselines = 0;
     int missing_baselines = 0;
+    int negative_raw_loss_rows_clamped = 0;
+    bool saw_any_raw_loss = false;
+    double min_raw_loss_cp = 0.0;
+    double max_raw_loss_cp = 0.0;
     bool negative_loss_artifact_emitted = false;
 
     try {
@@ -505,7 +501,16 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                     root_cached,
                     move_cached,
                     options.engine_max_loss_cp);
-                if (classified_eval.classification == MoveClassification::NegativeLossAnomaly) {
+                if (!saw_any_raw_loss) {
+                    min_raw_loss_cp = classified_eval.raw_loss_cp;
+                    max_raw_loss_cp = classified_eval.raw_loss_cp;
+                    saw_any_raw_loss = true;
+                } else {
+                    min_raw_loss_cp = std::min(min_raw_loss_cp, classified_eval.raw_loss_cp);
+                    max_raw_loss_cp = std::max(max_raw_loss_cp, classified_eval.raw_loss_cp);
+                }
+                if (classified_eval.raw_loss_cp < 0.0) {
+                    ++negative_raw_loss_rows_clamped;
                     if (!negative_loss_artifact_emitted) {
                         write_negative_loss_anomaly_artifact(
                             bundle_dir,
@@ -526,7 +531,6 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                             options.engine_reference_mode);
                         negative_loss_artifact_emitted = true;
                     }
-                    throw std::runtime_error("stage-b negative-loss anomaly encountered; see progress/first_negative_loss_anomaly.json");
                 }
 
                 move_evals.push_back(classified_eval.row);
@@ -599,7 +603,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             "BEGIN IMMEDIATE;"
             "CREATE TABLE artifact_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);"
             "CREATE TABLE engine_metadata(engine_id TEXT NOT NULL, engine_path TEXT NOT NULL, engine_movetime_ms INTEGER NOT NULL, engine_hash_mb INTEGER NOT NULL, engine_threads INTEGER NOT NULL, engine_accept_policy TEXT NOT NULL, engine_max_loss_cp INTEGER NOT NULL, engine_reference_mode TEXT NOT NULL, policy_hash TEXT NOT NULL);"
-            "CREATE TABLE move_engine_evals(position_key TEXT NOT NULL, move_uci TEXT NOT NULL, move_support INTEGER NOT NULL, popularity_rank INTEGER NOT NULL, root_best_cp REAL NOT NULL, move_cp REAL NOT NULL, loss_cp REAL NOT NULL, is_engine_accepted INTEGER NOT NULL, is_engine_fail INTEGER NOT NULL, eval_source TEXT NOT NULL, cache_hit INTEGER NOT NULL, PRIMARY KEY(position_key, move_uci));"
+            "CREATE TABLE move_engine_evals(position_key TEXT NOT NULL, move_uci TEXT NOT NULL, move_support INTEGER NOT NULL, popularity_rank INTEGER NOT NULL, root_best_cp REAL NOT NULL, move_cp REAL NOT NULL, raw_loss_cp REAL NOT NULL, loss_cp REAL NOT NULL, is_engine_accepted INTEGER NOT NULL, is_engine_fail INTEGER NOT NULL, eval_source TEXT NOT NULL, cache_hit INTEGER NOT NULL, PRIMARY KEY(position_key, move_uci));"
             "CREATE TABLE root_direct_baselines(position_key TEXT PRIMARY KEY, accepted_baseline_move TEXT NULL, accepted_baseline_support INTEGER NOT NULL, accepted_baseline_rank INTEGER NOT NULL, baseline_found INTEGER NOT NULL, reason_code TEXT NOT NULL);"
             "CREATE TABLE accepted_bucket_ceiling_priors(bucket_key TEXT PRIMARY KEY, rating_band TEXT NOT NULL, time_control_id TEXT NOT NULL, evaluating_side TEXT NOT NULL, deep_total_plies INTEGER NOT NULL, deep_own_plies INTEGER NOT NULL, support_floor INTEGER NOT NULL, weighted_ceiling REAL NOT NULL, move_count INTEGER NOT NULL, total_support INTEGER NOT NULL);"
         );
@@ -640,7 +644,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
 
         sqlite3_stmt* me = nullptr;
         sqlite3_prepare_v2(out_db,
-            "INSERT INTO move_engine_evals(position_key, move_uci, move_support, popularity_rank, root_best_cp, move_cp, loss_cp, is_engine_accepted, is_engine_fail, eval_source, cache_hit) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            "INSERT INTO move_engine_evals(position_key, move_uci, move_support, popularity_rank, root_best_cp, move_cp, raw_loss_cp, loss_cp, is_engine_accepted, is_engine_fail, eval_source, cache_hit) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
             -1,
             &me,
             nullptr);
@@ -651,11 +655,12 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             sqlite3_bind_int(me, 4, row.popularity_rank);
             sqlite3_bind_double(me, 5, row.root_best_cp);
             sqlite3_bind_double(me, 6, row.move_cp);
-            sqlite3_bind_double(me, 7, row.loss_cp);
-            sqlite3_bind_int(me, 8, row.is_engine_accepted);
-            sqlite3_bind_int(me, 9, row.is_engine_fail);
-            sqlite3_bind_text(me, 10, row.eval_source.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(me, 11, row.cache_hit);
+            sqlite3_bind_double(me, 7, row.raw_loss_cp);
+            sqlite3_bind_double(me, 8, row.loss_cp);
+            sqlite3_bind_int(me, 9, row.is_engine_accepted);
+            sqlite3_bind_int(me, 10, row.is_engine_fail);
+            sqlite3_bind_text(me, 11, row.eval_source.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(me, 12, row.cache_hit);
             if (sqlite3_step(me) != SQLITE_DONE) throw std::runtime_error("move_engine_evals insert failed");
             sqlite3_reset(me);
             sqlite3_clear_bindings(me);
@@ -739,6 +744,9 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             summary << "cache_misses=" << cache_misses << "\n";
             summary << "roots_with_direct_accepted_baseline=" << found_baselines << "\n";
             summary << "roots_without_direct_accepted_baseline=" << missing_baselines << "\n";
+            summary << "negative_raw_loss_rows_clamped=" << negative_raw_loss_rows_clamped << "\n";
+            summary << "min_raw_loss_cp=" << (saw_any_raw_loss ? min_raw_loss_cp : 0.0) << "\n";
+            summary << "max_raw_loss_cp=" << (saw_any_raw_loss ? max_raw_loss_cp : 0.0) << "\n";
         }
 
         {
@@ -750,7 +758,10 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                     << "  \"cache_hits\": " << cache_hits << ",\n"
                     << "  \"cache_misses\": " << cache_misses << ",\n"
                     << "  \"roots_with_direct_accepted_baseline\": " << found_baselines << ",\n"
-                    << "  \"roots_without_direct_accepted_baseline\": " << missing_baselines << "\n"
+                    << "  \"roots_without_direct_accepted_baseline\": " << missing_baselines << ",\n"
+                    << "  \"negative_raw_loss_rows_clamped\": " << negative_raw_loss_rows_clamped << ",\n"
+                    << "  \"min_raw_loss_cp\": " << (saw_any_raw_loss ? min_raw_loss_cp : 0.0) << ",\n"
+                    << "  \"max_raw_loss_cp\": " << (saw_any_raw_loss ? max_raw_loss_cp : 0.0) << "\n"
                     << "}\n";
         }
         progress.stage_completed("write-artifacts complete");
