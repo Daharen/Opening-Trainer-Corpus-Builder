@@ -82,6 +82,56 @@ struct PriorAccumulator {
     int move_count = 0;
 };
 
+constexpr double kScoreInvariantEpsilon = 1e-9;
+
+MoveEval make_validated_move_eval_row(const RootData& root,
+                                      const RetainedMove& mv,
+                                      double raw_root_best_cp,
+                                      double raw_post_move_cp,
+                                      bool root_cached,
+                                      bool move_cached,
+                                      int engine_max_loss_cp) {
+    const double root_best_cp_for_root_side = raw_root_best_cp;
+    const double move_cp_for_root_side = -raw_post_move_cp;
+    const double computed_loss_cp = root_best_cp_for_root_side - move_cp_for_root_side;
+
+    const bool accepted =
+        computed_loss_cp >= 0.0 &&
+        computed_loss_cp <= static_cast<double>(engine_max_loss_cp);
+    const bool failed = !accepted;
+
+    if (accepted && computed_loss_cp < 0.0) {
+        throw std::runtime_error("stage-b invariant violation: accepted row has negative loss_cp");
+    }
+    if (accepted && computed_loss_cp > static_cast<double>(engine_max_loss_cp)) {
+        throw std::runtime_error("stage-b invariant violation: accepted row exceeds engine_max_loss_cp");
+    }
+    if (failed && computed_loss_cp <= static_cast<double>(engine_max_loss_cp)) {
+        throw std::runtime_error("stage-b invariant violation: failed row must have loss_cp > engine_max_loss_cp");
+    }
+    if ((accepted ? 1 : 0) + (failed ? 1 : 0) != 1) {
+        throw std::runtime_error("stage-b invariant violation: accepted/fail flags must be mutually exclusive");
+    }
+
+    MoveEval row{
+        .position_key = root.position_key,
+        .move_uci = mv.move_uci,
+        .move_support = mv.move_support,
+        .popularity_rank = mv.popularity_rank,
+        .root_best_cp = root_best_cp_for_root_side,
+        .move_cp = move_cp_for_root_side,
+        .loss_cp = computed_loss_cp,
+        .is_engine_accepted = accepted ? 1 : 0,
+        .is_engine_fail = failed ? 1 : 0,
+        .eval_source = (root_cached || move_cached) ? "cache_or_live" : "live",
+        .cache_hit = move_cached ? 1 : 0,
+    };
+    if (std::abs(row.loss_cp - (row.root_best_cp - row.move_cp)) > kScoreInvariantEpsilon) {
+        throw std::runtime_error("stage-b invariant violation: loss_cp must equal root_best_cp - move_cp");
+    }
+    return row;
+}
+
 std::string trim(const std::string& in) {
     std::size_t s = 0;
     while (s < in.size() && std::isspace(static_cast<unsigned char>(in[s]))) ++s;
@@ -355,7 +405,6 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
 
             const Color root_side = board.side_to_move();
             const auto [raw_root_best_cp, root_cached] = eval_at(root.position_key, fen, "");
-            const double root_best_cp_for_root_side = raw_root_best_cp;
             ++baseline_evals;
 
             std::vector<RetainedMove> candidate_moves = root.moves;
@@ -374,25 +423,16 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                 if (side_to_move_after_move == root_side) {
                     throw std::runtime_error("post-move side-to-move unexpectedly unchanged in stage-b overlay");
                 }
-                const double move_cp_for_root_side = -raw_post_move_cp;
-                const double loss_cp_for_root_side = root_best_cp_for_root_side - move_cp_for_root_side;
-                const bool accepted =
-                    loss_cp_for_root_side >= 0.0 &&
-                    loss_cp_for_root_side <= static_cast<double>(options.engine_max_loss_cp);
-
-                move_evals.push_back(MoveEval{
-                    .position_key = root.position_key,
-                    .move_uci = mv.move_uci,
-                    .move_support = mv.move_support,
-                    .popularity_rank = mv.popularity_rank,
-                    .root_best_cp = root_best_cp_for_root_side,
-                    .move_cp = move_cp_for_root_side,
-                    .loss_cp = loss_cp_for_root_side,
-                    .is_engine_accepted = accepted ? 1 : 0,
-                    .is_engine_fail = accepted ? 0 : 1,
-                    .eval_source = (root_cached || move_cached) ? "cache_or_live" : "live",
-                    .cache_hit = move_cached ? 1 : 0,
-                });
+                move_evals.push_back(make_validated_move_eval_row(
+                    root,
+                    mv,
+                    raw_root_best_cp,
+                    raw_post_move_cp,
+                    root_cached,
+                    move_cached,
+                    options.engine_max_loss_cp));
+                const MoveEval& persisted_row = move_evals.back();
+                const bool accepted = persisted_row.is_engine_accepted == 1;
 
                 if (accepted) {
                     const std::string bucket_key = root.rating_band + "|" + root.time_control_id + "|" + root.evaluating_side + "|" + std::to_string(root.deep_total_plies) +
