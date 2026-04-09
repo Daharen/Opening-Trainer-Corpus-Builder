@@ -259,6 +259,22 @@ else()
 endif()
 target_link_libraries(build-practical-risk-final PRIVATE ${OTCB_SQLITE_TARGET})
 
+add_executable(build-practical-risk-reconciled
+    src/practical_risk/reconciled/build_practical_risk_reconciled_main.cpp
+    src/practical_risk/reconciled/practical_risk_reconciled.cpp
+    src/progress.cpp
+)
+target_include_directories(build-practical-risk-reconciled
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(MSVC)
+    target_compile_options(build-practical-risk-reconciled PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(build-practical-risk-reconciled PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+target_link_libraries(build-practical-risk-reconciled PRIVATE ${OTCB_SQLITE_TARGET})
+
 if(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD)
     find_package(zstd QUIET CONFIG)
     if(TARGET zstd::libzstd_shared)
