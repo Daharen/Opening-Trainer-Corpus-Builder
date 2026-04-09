@@ -6,6 +6,14 @@ mode = os.environ.get("MOCK_ENGINE_MODE", "default")
 log_path = os.environ.get("MOCK_ENGINE_LOG")
 
 def score_for(move):
+    if mode == "overlay_perspective":
+        if move == "":
+            return 30
+        if move == "e2e4":
+            return 20
+        if move == "d2d4":
+            return -20
+        return -20
     if mode == "no_baseline":
         if move == "":
             return 30
