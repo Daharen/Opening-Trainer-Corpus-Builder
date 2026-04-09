@@ -105,6 +105,15 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     assert accepted > 0
     assert failing > 0
 
+    exclusivity_violations = cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM move_engine_evals
+        WHERE (is_engine_accepted + is_engine_fail) != 1
+        """
+    ).fetchone()[0]
+    assert exclusivity_violations == 0
+
     white_roots = cur.execute("SELECT COUNT(DISTINCT position_key) FROM move_engine_evals WHERE instr(position_key, ' w ') > 0").fetchone()[0]
     black_roots = cur.execute("SELECT COUNT(DISTINCT position_key) FROM move_engine_evals WHERE instr(position_key, ' b ') > 0").fetchone()[0]
     assert white_roots > 0
@@ -139,6 +148,17 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
         (engine_max_loss_cp,),
     ).fetchone()[0]
     assert accepted_invalid_loss_rows == 0
+
+    failed_invalid_loss_rows = cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM move_engine_evals
+        WHERE is_engine_fail=1
+          AND loss_cp <= ?1
+        """,
+        (engine_max_loss_cp,),
+    ).fetchone()[0]
+    assert failed_invalid_loss_rows == 0
 
     def expected_raw_root_cp_from_engine() -> float:
         return 30.0
@@ -198,6 +218,21 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
 
     priors = cur.execute("SELECT COUNT(*) FROM accepted_bucket_ceiling_priors").fetchone()[0]
     assert priors > 0
+    prior_side_rows = cur.execute(
+        """
+        SELECT evaluating_side, COUNT(*)
+        FROM accepted_bucket_ceiling_priors
+        GROUP BY evaluating_side
+        """
+    ).fetchall()
+    prior_sides = {side for side, _ in prior_side_rows}
+    if accepted_white > 0 and accepted_black > 0:
+        assert "white" in prior_sides
+        assert "black" in prior_sides
+    elif accepted_white > 0:
+        assert "white" in prior_sides
+    elif accepted_black > 0:
+        assert "black" in prior_sides
 
     found = cur.execute("SELECT COUNT(*) FROM root_direct_baselines WHERE baseline_found=1").fetchone()[0]
     missing = cur.execute("SELECT COUNT(*) FROM root_direct_baselines WHERE baseline_found=0").fetchone()[0]
