@@ -98,6 +98,8 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     reconstruction_failures = cur.execute("SELECT COUNT(*) FROM root_direct_baselines WHERE reason_code='board_reconstruction_failed'").fetchone()[0]
     assert reconstruction_failures == 0
 
+    engine_max_loss_cp = cur.execute("SELECT engine_max_loss_cp FROM engine_metadata LIMIT 1").fetchone()[0]
+
     accepted = cur.execute("SELECT COUNT(*) FROM move_engine_evals WHERE is_engine_accepted=1").fetchone()[0]
     failing = cur.execute("SELECT COUNT(*) FROM move_engine_evals WHERE is_engine_fail=1").fetchone()[0]
     assert accepted > 0
@@ -122,10 +124,37 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     ).fetchone()[0]
     assert inconsistent_loss_rows == 0
 
-    sign_bug_like_rows = cur.execute(
-        "SELECT COUNT(*) FROM move_engine_evals WHERE is_engine_accepted=1 AND loss_cp < -30"
+    accepted_invalid_loss_rows = cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM move_engine_evals
+        WHERE is_engine_accepted=1
+          AND (loss_cp < 0 OR loss_cp > ?1)
+        """,
+        (engine_max_loss_cp,),
     ).fetchone()[0]
-    assert sign_bug_like_rows == 0
+    assert accepted_invalid_loss_rows == 0
+
+    def expected_raw_post_move_cp_from_engine(move_uci: str) -> float:
+        if move_uci == "e2e4":
+            return 20.0
+        if move_uci == "d2d4":
+            return -20.0
+        return -20.0
+
+    eval_rows = cur.execute("SELECT move_uci, move_cp, loss_cp, root_best_cp FROM move_engine_evals").fetchall()
+    assert len(eval_rows) > 0
+    has_d2d4 = False
+    for move_uci, move_cp, loss_cp, root_best_cp in eval_rows:
+        expected_root_side_move_cp = -expected_raw_post_move_cp_from_engine(move_uci)
+        expected_loss_cp = root_best_cp - expected_root_side_move_cp
+        assert abs(move_cp - expected_root_side_move_cp) <= 1e-6
+        assert abs(loss_cp - expected_loss_cp) <= 1e-6
+        if move_uci == "d2d4":
+            has_d2d4 = True
+            assert abs(move_cp - 20.0) <= 1e-6
+            assert abs(loss_cp - 10.0) <= 1e-6
+    assert has_d2d4
 
     priors = cur.execute("SELECT COUNT(*) FROM accepted_bucket_ceiling_priors").fetchone()[0]
     assert priors > 0
@@ -134,6 +163,14 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     missing = cur.execute("SELECT COUNT(*) FROM root_direct_baselines WHERE baseline_found=0").fetchone()[0]
     if expect_baseline:
         assert found > 0
+        found_white = cur.execute(
+            "SELECT COUNT(*) FROM root_direct_baselines WHERE baseline_found=1 AND instr(position_key, ' w ') > 0"
+        ).fetchone()[0]
+        found_black = cur.execute(
+            "SELECT COUNT(*) FROM root_direct_baselines WHERE baseline_found=1 AND instr(position_key, ' b ') > 0"
+        ).fetchone()[0]
+        assert found_white > 0
+        assert found_black > 0
     else:
         assert missing > 0
 
