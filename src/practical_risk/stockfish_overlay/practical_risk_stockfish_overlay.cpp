@@ -56,6 +56,8 @@ struct MoveEval {
     double move_cp = 0.0;
     double raw_loss_cp = 0.0;
     double loss_cp = 0.0;
+    std::string engine_quality_class;
+    double ceiling = 0.0;
     int is_engine_accepted = 0;
     int is_engine_fail = 0;
     std::string eval_source;
@@ -83,7 +85,27 @@ struct PriorAccumulator {
     int move_count = 0;
 };
 
+struct RootEngineThresholdRow {
+    std::string position_key;
+    std::optional<double> good_inclusive_min_ceiling;
+    std::optional<double> good_exclusive_min_ceiling;
+    std::optional<std::string> good_inclusive_min_move;
+    std::optional<std::string> good_exclusive_min_move;
+    int accepted_move_count = 0;
+    int accepted_move_count_good_inclusive = 0;
+    int accepted_move_count_good_exclusive = 0;
+    int failed_move_count = 0;
+};
+
 constexpr double kScoreInvariantEpsilon = 1e-9;
+
+struct EngineQualityThresholdPolicy {
+    double book_max_loss_cp = 0.0;
+    double best_max_loss_cp = 10.0;
+    double excellent_max_loss_cp = 20.0;
+};
+
+constexpr EngineQualityThresholdPolicy kEngineQualityThresholdPolicy{};
 
 struct ClassifiedMoveEval {
     MoveEval row;
@@ -93,6 +115,29 @@ struct ClassifiedMoveEval {
     double raw_loss_cp = 0.0;
     double effective_loss_cp = 0.0;
 };
+
+double effective_threshold(double configured_max_loss_cp, double policy_threshold_cp) {
+    return std::min(configured_max_loss_cp, policy_threshold_cp);
+}
+
+std::string classify_engine_quality(double effective_loss_cp,
+                                    int engine_max_loss_cp,
+                                    const EngineQualityThresholdPolicy& policy) {
+    const double configured_max_loss_cp = static_cast<double>(engine_max_loss_cp);
+    if (std::abs(effective_loss_cp) <= kScoreInvariantEpsilon) return "book";
+    if (effective_loss_cp <= effective_threshold(configured_max_loss_cp, policy.best_max_loss_cp)) return "best";
+    if (effective_loss_cp <= effective_threshold(configured_max_loss_cp, policy.excellent_max_loss_cp)) return "excellent";
+    if (effective_loss_cp <= configured_max_loss_cp) return "good";
+    return "fail";
+}
+
+bool engine_quality_is_fail(const std::string& engine_quality_class) {
+    return engine_quality_class == "fail";
+}
+
+bool engine_quality_in_good_exclusive(const std::string& engine_quality_class) {
+    return engine_quality_class == "book" || engine_quality_class == "best" || engine_quality_class == "excellent";
+}
 
 std::string color_to_string(Color c) {
     return c == Color::White ? "white" : "black";
@@ -104,13 +149,15 @@ ClassifiedMoveEval make_validated_move_eval_row(const RootData& root,
                                                 double raw_post_move_cp,
                                                 bool root_cached,
                                                 bool move_cached,
-                                                int engine_max_loss_cp) {
+                                                int engine_max_loss_cp,
+                                                const EngineQualityThresholdPolicy& quality_policy) {
     const double root_best_cp_for_root_side = raw_root_best_cp;
     const double move_cp_for_root_side = -raw_post_move_cp;
     const double computed_raw_loss_cp = root_best_cp_for_root_side - move_cp_for_root_side;
     const double computed_effective_loss_cp = std::max(0.0, computed_raw_loss_cp);
-    const bool accepted = computed_effective_loss_cp <= static_cast<double>(engine_max_loss_cp);
-    const bool failed = computed_effective_loss_cp > static_cast<double>(engine_max_loss_cp);
+    const std::string engine_quality_class = classify_engine_quality(computed_effective_loss_cp, engine_max_loss_cp, quality_policy);
+    const bool failed = engine_quality_is_fail(engine_quality_class);
+    const bool accepted = !failed;
 
     MoveEval row{
         .position_key = root.position_key,
@@ -121,6 +168,8 @@ ClassifiedMoveEval make_validated_move_eval_row(const RootData& root,
         .move_cp = move_cp_for_root_side,
         .raw_loss_cp = computed_raw_loss_cp,
         .loss_cp = computed_effective_loss_cp,
+        .engine_quality_class = engine_quality_class,
+        .ceiling = mv.ceiling,
         .is_engine_accepted = accepted ? 1 : 0,
         .is_engine_fail = failed ? 1 : 0,
         .eval_source = (root_cached || move_cached) ? "cache_or_live" : "live",
@@ -132,11 +181,14 @@ ClassifiedMoveEval make_validated_move_eval_row(const RootData& root,
     if (std::abs(row.loss_cp - std::max(0.0, row.raw_loss_cp)) > kScoreInvariantEpsilon) {
         throw std::runtime_error("stage-b invariant violation: loss_cp must equal max(0, raw_loss_cp)");
     }
-    if (row.is_engine_accepted != (row.loss_cp <= static_cast<double>(engine_max_loss_cp) ? 1 : 0)) {
-        throw std::runtime_error("stage-b invariant violation: is_engine_accepted must match threshold check");
+    if (row.engine_quality_class != classify_engine_quality(row.loss_cp, engine_max_loss_cp, quality_policy)) {
+        throw std::runtime_error("stage-b invariant violation: engine_quality_class must match threshold policy");
     }
-    if (row.is_engine_fail != (row.loss_cp > static_cast<double>(engine_max_loss_cp) ? 1 : 0)) {
-        throw std::runtime_error("stage-b invariant violation: is_engine_fail must match threshold check");
+    if (row.is_engine_accepted != (engine_quality_is_fail(row.engine_quality_class) ? 0 : 1)) {
+        throw std::runtime_error("stage-b invariant violation: is_engine_accepted must match class mapping");
+    }
+    if (row.is_engine_fail != (engine_quality_is_fail(row.engine_quality_class) ? 1 : 0)) {
+        throw std::runtime_error("stage-b invariant violation: is_engine_fail must match class mapping");
     }
     if ((row.is_engine_accepted + row.is_engine_fail) != 1) {
         throw std::runtime_error("stage-b invariant violation: accepted/fail must be mutually exclusive");
@@ -347,6 +399,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
     std::unordered_map<std::string, PriorAccumulator> priors;
     std::vector<MoveEval> move_evals;
     std::vector<BaselineRow> baselines;
+    std::vector<RootEngineThresholdRow> root_engine_thresholds;
     int cache_hits = 0;
     int cache_misses = 0;
     int baseline_evals = 0;
@@ -358,6 +411,13 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
     double min_raw_loss_cp = 0.0;
     double max_raw_loss_cp = 0.0;
     bool negative_loss_artifact_emitted = false;
+    int book_count = 0;
+    int best_count = 0;
+    int excellent_count = 0;
+    int good_count = 0;
+    int fail_count = 0;
+    int roots_with_good_inclusive_min = 0;
+    int roots_with_good_exclusive_min = 0;
 
     try {
         progress.stage_started(ProgressStage::Preflight, "preflight stockfish overlay");
@@ -500,7 +560,8 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                     raw_post_move_cp,
                     root_cached,
                     move_cached,
-                    options.engine_max_loss_cp);
+                    options.engine_max_loss_cp,
+                    kEngineQualityThresholdPolicy);
                 if (!saw_any_raw_loss) {
                     min_raw_loss_cp = classified_eval.raw_loss_cp;
                     max_raw_loss_cp = classified_eval.raw_loss_cp;
@@ -535,6 +596,12 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
 
                 move_evals.push_back(classified_eval.row);
                 const MoveEval& persisted_row = move_evals.back();
+                if (persisted_row.engine_quality_class == "book") ++book_count;
+                else if (persisted_row.engine_quality_class == "best") ++best_count;
+                else if (persisted_row.engine_quality_class == "excellent") ++excellent_count;
+                else if (persisted_row.engine_quality_class == "good") ++good_count;
+                else if (persisted_row.engine_quality_class == "fail") ++fail_count;
+                else throw std::runtime_error("stage-b invariant violation: unknown engine_quality_class");
                 const bool accepted = persisted_row.is_engine_accepted == 1;
 
                 if (accepted) {
@@ -553,6 +620,36 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                 }
             }
 
+            RootEngineThresholdRow root_thresholds;
+            root_thresholds.position_key = root.position_key;
+            for (const auto& rm : candidate_moves) {
+                const auto it = std::find_if(move_evals.begin(), move_evals.end(), [&](const MoveEval& e) {
+                    return e.position_key == root.position_key && e.move_uci == rm.move_uci;
+                });
+                if (it == move_evals.end()) continue;
+                const bool is_fail = engine_quality_is_fail(it->engine_quality_class);
+                if (is_fail) {
+                    root_thresholds.failed_move_count += 1;
+                } else {
+                    root_thresholds.accepted_move_count += 1;
+                    root_thresholds.accepted_move_count_good_inclusive += 1;
+                    if (!root_thresholds.good_inclusive_min_ceiling.has_value() || it->ceiling < *root_thresholds.good_inclusive_min_ceiling) {
+                        root_thresholds.good_inclusive_min_ceiling = it->ceiling;
+                        root_thresholds.good_inclusive_min_move = it->move_uci;
+                    }
+                    if (engine_quality_in_good_exclusive(it->engine_quality_class)) {
+                        root_thresholds.accepted_move_count_good_exclusive += 1;
+                        if (!root_thresholds.good_exclusive_min_ceiling.has_value() || it->ceiling < *root_thresholds.good_exclusive_min_ceiling) {
+                            root_thresholds.good_exclusive_min_ceiling = it->ceiling;
+                            root_thresholds.good_exclusive_min_move = it->move_uci;
+                        }
+                    }
+                }
+            }
+            if (root_thresholds.good_inclusive_min_ceiling.has_value()) ++roots_with_good_inclusive_min;
+            if (root_thresholds.good_exclusive_min_ceiling.has_value()) ++roots_with_good_exclusive_min;
+            root_engine_thresholds.push_back(std::move(root_thresholds));
+
             std::vector<RetainedMove> ranked = root.moves;
             if (options.baseline_prefix_limit > 0 && static_cast<int>(ranked.size()) > options.baseline_prefix_limit) {
                 ranked.resize(static_cast<std::size_t>(options.baseline_prefix_limit));
@@ -562,7 +659,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                 const auto it = std::find_if(move_evals.begin(), move_evals.end(), [&](const MoveEval& e) {
                     return e.position_key == root.position_key && e.move_uci == rm.move_uci;
                 });
-                if (it != move_evals.end() && it->is_engine_accepted == 1) {
+                if (it != move_evals.end() && !engine_quality_is_fail(it->engine_quality_class)) {
                     baseline.accepted_baseline_move = rm.move_uci;
                     baseline.accepted_baseline_support = rm.move_support;
                     baseline.accepted_baseline_rank = rm.popularity_rank;
@@ -603,8 +700,9 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             "BEGIN IMMEDIATE;"
             "CREATE TABLE artifact_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);"
             "CREATE TABLE engine_metadata(engine_id TEXT NOT NULL, engine_path TEXT NOT NULL, engine_movetime_ms INTEGER NOT NULL, engine_hash_mb INTEGER NOT NULL, engine_threads INTEGER NOT NULL, engine_accept_policy TEXT NOT NULL, engine_max_loss_cp INTEGER NOT NULL, engine_reference_mode TEXT NOT NULL, policy_hash TEXT NOT NULL);"
-            "CREATE TABLE move_engine_evals(position_key TEXT NOT NULL, move_uci TEXT NOT NULL, move_support INTEGER NOT NULL, popularity_rank INTEGER NOT NULL, root_best_cp REAL NOT NULL, move_cp REAL NOT NULL, raw_loss_cp REAL NOT NULL, loss_cp REAL NOT NULL, is_engine_accepted INTEGER NOT NULL, is_engine_fail INTEGER NOT NULL, eval_source TEXT NOT NULL, cache_hit INTEGER NOT NULL, PRIMARY KEY(position_key, move_uci));"
+            "CREATE TABLE move_engine_evals(position_key TEXT NOT NULL, move_uci TEXT NOT NULL, move_support INTEGER NOT NULL, popularity_rank INTEGER NOT NULL, root_best_cp REAL NOT NULL, move_cp REAL NOT NULL, raw_loss_cp REAL NOT NULL, loss_cp REAL NOT NULL, engine_quality_class TEXT NOT NULL, ceiling REAL NOT NULL, is_engine_accepted INTEGER NOT NULL, is_engine_fail INTEGER NOT NULL, eval_source TEXT NOT NULL, cache_hit INTEGER NOT NULL, PRIMARY KEY(position_key, move_uci));"
             "CREATE TABLE root_direct_baselines(position_key TEXT PRIMARY KEY, accepted_baseline_move TEXT NULL, accepted_baseline_support INTEGER NOT NULL, accepted_baseline_rank INTEGER NOT NULL, baseline_found INTEGER NOT NULL, reason_code TEXT NOT NULL);"
+            "CREATE TABLE root_engine_thresholds(position_key TEXT PRIMARY KEY, good_inclusive_min_ceiling REAL NULL, good_exclusive_min_ceiling REAL NULL, good_inclusive_min_move TEXT NULL, good_exclusive_min_move TEXT NULL, accepted_move_count INTEGER NOT NULL, accepted_move_count_good_inclusive INTEGER NOT NULL, accepted_move_count_good_exclusive INTEGER NOT NULL, failed_move_count INTEGER NOT NULL);"
             "CREATE TABLE accepted_bucket_ceiling_priors(bucket_key TEXT PRIMARY KEY, rating_band TEXT NOT NULL, time_control_id TEXT NOT NULL, evaluating_side TEXT NOT NULL, deep_total_plies INTEGER NOT NULL, deep_own_plies INTEGER NOT NULL, support_floor INTEGER NOT NULL, weighted_ceiling REAL NOT NULL, move_count INTEGER NOT NULL, total_support INTEGER NOT NULL);"
         );
 
@@ -644,7 +742,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
 
         sqlite3_stmt* me = nullptr;
         sqlite3_prepare_v2(out_db,
-            "INSERT INTO move_engine_evals(position_key, move_uci, move_support, popularity_rank, root_best_cp, move_cp, raw_loss_cp, loss_cp, is_engine_accepted, is_engine_fail, eval_source, cache_hit) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+            "INSERT INTO move_engine_evals(position_key, move_uci, move_support, popularity_rank, root_best_cp, move_cp, raw_loss_cp, loss_cp, engine_quality_class, ceiling, is_engine_accepted, is_engine_fail, eval_source, cache_hit) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
             -1,
             &me,
             nullptr);
@@ -657,10 +755,12 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             sqlite3_bind_double(me, 6, row.move_cp);
             sqlite3_bind_double(me, 7, row.raw_loss_cp);
             sqlite3_bind_double(me, 8, row.loss_cp);
-            sqlite3_bind_int(me, 9, row.is_engine_accepted);
-            sqlite3_bind_int(me, 10, row.is_engine_fail);
-            sqlite3_bind_text(me, 11, row.eval_source.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(me, 12, row.cache_hit);
+            sqlite3_bind_text(me, 9, row.engine_quality_class.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_double(me, 10, row.ceiling);
+            sqlite3_bind_int(me, 11, row.is_engine_accepted);
+            sqlite3_bind_int(me, 12, row.is_engine_fail);
+            sqlite3_bind_text(me, 13, row.eval_source.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(me, 14, row.cache_hit);
             if (sqlite3_step(me) != SQLITE_DONE) throw std::runtime_error("move_engine_evals insert failed");
             sqlite3_reset(me);
             sqlite3_clear_bindings(me);
@@ -686,6 +786,32 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             sqlite3_clear_bindings(rb);
         }
         sqlite3_finalize(rb);
+
+        sqlite3_stmt* rt = nullptr;
+        sqlite3_prepare_v2(out_db,
+            "INSERT INTO root_engine_thresholds(position_key, good_inclusive_min_ceiling, good_exclusive_min_ceiling, good_inclusive_min_move, good_exclusive_min_move, accepted_move_count, accepted_move_count_good_inclusive, accepted_move_count_good_exclusive, failed_move_count) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            -1,
+            &rt,
+            nullptr);
+        for (const auto& row : root_engine_thresholds) {
+            sqlite3_bind_text(rt, 1, row.position_key.c_str(), -1, SQLITE_TRANSIENT);
+            if (row.good_inclusive_min_ceiling.has_value()) sqlite3_bind_double(rt, 2, *row.good_inclusive_min_ceiling);
+            else sqlite3_bind_null(rt, 2);
+            if (row.good_exclusive_min_ceiling.has_value()) sqlite3_bind_double(rt, 3, *row.good_exclusive_min_ceiling);
+            else sqlite3_bind_null(rt, 3);
+            if (row.good_inclusive_min_move.has_value()) sqlite3_bind_text(rt, 4, row.good_inclusive_min_move->c_str(), -1, SQLITE_TRANSIENT);
+            else sqlite3_bind_null(rt, 4);
+            if (row.good_exclusive_min_move.has_value()) sqlite3_bind_text(rt, 5, row.good_exclusive_min_move->c_str(), -1, SQLITE_TRANSIENT);
+            else sqlite3_bind_null(rt, 5);
+            sqlite3_bind_int(rt, 6, row.accepted_move_count);
+            sqlite3_bind_int(rt, 7, row.accepted_move_count_good_inclusive);
+            sqlite3_bind_int(rt, 8, row.accepted_move_count_good_exclusive);
+            sqlite3_bind_int(rt, 9, row.failed_move_count);
+            if (sqlite3_step(rt) != SQLITE_DONE) throw std::runtime_error("root_engine_thresholds insert failed");
+            sqlite3_reset(rt);
+            sqlite3_clear_bindings(rt);
+        }
+        sqlite3_finalize(rt);
 
         sqlite3_stmt* pri = nullptr;
         sqlite3_prepare_v2(out_db,
@@ -727,6 +853,11 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             manifest << "  \"engine_hash_mb\": " << options.engine_hash_mb << ",\n";
             manifest << "  \"engine_accept_policy\": \"" << json_escape(options.engine_accept_policy) << "\",\n";
             manifest << "  \"engine_max_loss_cp\": " << options.engine_max_loss_cp << ",\n";
+            manifest << "  \"engine_quality_policy\": \"loss_cp_tiers\",\n";
+            manifest << "  \"book_max_loss_cp\": " << kEngineQualityThresholdPolicy.book_max_loss_cp << ",\n";
+            manifest << "  \"best_max_loss_cp\": " << effective_threshold(static_cast<double>(options.engine_max_loss_cp), kEngineQualityThresholdPolicy.best_max_loss_cp) << ",\n";
+            manifest << "  \"excellent_max_loss_cp\": " << effective_threshold(static_cast<double>(options.engine_max_loss_cp), kEngineQualityThresholdPolicy.excellent_max_loss_cp) << ",\n";
+            manifest << "  \"good_max_loss_cp\": " << options.engine_max_loss_cp << ",\n";
             manifest << "  \"engine_reference_mode\": \"" << json_escape(options.engine_reference_mode) << "\",\n";
             manifest << "  \"baseline_prefix_limit\": " << options.baseline_prefix_limit << ",\n";
             manifest << "  \"candidate_prefix_limit\": " << options.candidate_prefix_limit << ",\n";
@@ -745,6 +876,13 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             summary << "roots_with_direct_accepted_baseline=" << found_baselines << "\n";
             summary << "roots_without_direct_accepted_baseline=" << missing_baselines << "\n";
             summary << "negative_raw_loss_rows_clamped=" << negative_raw_loss_rows_clamped << "\n";
+            summary << "book_count=" << book_count << "\n";
+            summary << "best_count=" << best_count << "\n";
+            summary << "excellent_count=" << excellent_count << "\n";
+            summary << "good_count=" << good_count << "\n";
+            summary << "fail_count=" << fail_count << "\n";
+            summary << "roots_with_good_inclusive_min=" << roots_with_good_inclusive_min << "\n";
+            summary << "roots_with_good_exclusive_min=" << roots_with_good_exclusive_min << "\n";
             summary << "min_raw_loss_cp=" << (saw_any_raw_loss ? min_raw_loss_cp : 0.0) << "\n";
             summary << "max_raw_loss_cp=" << (saw_any_raw_loss ? max_raw_loss_cp : 0.0) << "\n";
         }
@@ -760,6 +898,13 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                     << "  \"roots_with_direct_accepted_baseline\": " << found_baselines << ",\n"
                     << "  \"roots_without_direct_accepted_baseline\": " << missing_baselines << ",\n"
                     << "  \"negative_raw_loss_rows_clamped\": " << negative_raw_loss_rows_clamped << ",\n"
+                    << "  \"book_count\": " << book_count << ",\n"
+                    << "  \"best_count\": " << best_count << ",\n"
+                    << "  \"excellent_count\": " << excellent_count << ",\n"
+                    << "  \"good_count\": " << good_count << ",\n"
+                    << "  \"fail_count\": " << fail_count << ",\n"
+                    << "  \"roots_with_good_inclusive_min\": " << roots_with_good_inclusive_min << ",\n"
+                    << "  \"roots_with_good_exclusive_min\": " << roots_with_good_exclusive_min << ",\n"
                     << "  \"min_raw_loss_cp\": " << (saw_any_raw_loss ? min_raw_loss_cp : 0.0) << ",\n"
                     << "  \"max_raw_loss_cp\": " << (saw_any_raw_loss ? max_raw_loss_cp : 0.0) << "\n"
                     << "}\n";

@@ -72,6 +72,7 @@ def build_stage_b(binary: Path, stage_a_bundle: Path, out_dir: Path, artifact: s
 
 
 def validate_bundle(bundle: Path, expect_baseline: bool):
+    allowed_classes = {"book", "best", "excellent", "good", "fail"}
     manifest = json.loads((bundle / "manifest.json").read_text())
     assert manifest["artifact_role"] == "practical_risk_stockfish_overlay"
     assert manifest["stockfish_used"] is True
@@ -89,6 +90,7 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
         "engine_metadata",
         "move_engine_evals",
         "root_direct_baselines",
+        "root_engine_thresholds",
         "accepted_bucket_ceiling_priors",
     }
     assert required.issubset(tables)
@@ -99,6 +101,12 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     assert reconstruction_failures == 0
 
     engine_max_loss_cp = cur.execute("SELECT engine_max_loss_cp FROM engine_metadata LIMIT 1").fetchone()[0]
+    book_max_loss_cp = float(manifest["book_max_loss_cp"])
+    best_max_loss_cp = float(manifest["best_max_loss_cp"])
+    excellent_max_loss_cp = float(manifest["excellent_max_loss_cp"])
+    good_max_loss_cp = float(manifest["good_max_loss_cp"])
+    assert abs(book_max_loss_cp - 0.0) <= 1e-6
+    assert abs(good_max_loss_cp - float(engine_max_loss_cp)) <= 1e-6
 
     accepted = cur.execute("SELECT COUNT(*) FROM move_engine_evals WHERE is_engine_accepted=1").fetchone()[0]
     failing = cur.execute("SELECT COUNT(*) FROM move_engine_evals WHERE is_engine_fail=1").fetchone()[0]
@@ -138,6 +146,21 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     ).fetchone()[0]
     assert inconsistent_effective_loss_rows == 0
 
+    invalid_classes = cur.execute(
+        "SELECT COUNT(*) FROM move_engine_evals WHERE engine_quality_class NOT IN ('book','best','excellent','good','fail')"
+    ).fetchone()[0]
+    assert invalid_classes == 0
+
+    class_flag_inconsistencies = cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM move_engine_evals
+        WHERE (engine_quality_class='fail' AND (is_engine_fail != 1 OR is_engine_accepted != 0))
+           OR (engine_quality_class!='fail' AND (is_engine_fail != 0 OR is_engine_accepted != 1))
+        """
+    ).fetchone()[0]
+    assert class_flag_inconsistencies == 0
+
     negative_accepted_loss_rows = cur.execute(
         "SELECT COUNT(*) FROM move_engine_evals WHERE is_engine_accepted=1 AND loss_cp < 0"
     ).fetchone()[0]
@@ -165,6 +188,17 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     ).fetchone()[0]
     assert failed_invalid_loss_rows == 0
 
+    def classify_loss(loss_cp: float) -> str:
+        if abs(loss_cp - book_max_loss_cp) <= 1e-6:
+            return "book"
+        if loss_cp <= best_max_loss_cp + 1e-6:
+            return "best"
+        if loss_cp <= excellent_max_loss_cp + 1e-6:
+            return "excellent"
+        if loss_cp <= good_max_loss_cp + 1e-6:
+            return "good"
+        return "fail"
+
     def expected_raw_root_cp_from_engine() -> float:
         return 30.0
 
@@ -175,14 +209,18 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
             return -20.0
         return -20.0
 
-    eval_rows = cur.execute("SELECT move_uci, move_cp, raw_loss_cp, loss_cp, root_best_cp FROM move_engine_evals").fetchall()
+    eval_rows = cur.execute(
+        "SELECT move_uci, move_cp, raw_loss_cp, loss_cp, root_best_cp, engine_quality_class FROM move_engine_evals"
+    ).fetchall()
     assert len(eval_rows) > 0
     has_d2d4 = False
-    for move_uci, move_cp, raw_loss_cp, loss_cp, root_best_cp in eval_rows:
+    for move_uci, move_cp, raw_loss_cp, loss_cp, root_best_cp, engine_quality_class in eval_rows:
         expected_root_best_cp = expected_raw_root_cp_from_engine()
         expected_root_side_move_cp = -expected_raw_post_move_cp_from_engine(move_uci)
         expected_raw_loss_cp = expected_root_best_cp - expected_root_side_move_cp
         expected_loss_cp = max(0.0, expected_raw_loss_cp)
+        assert engine_quality_class in allowed_classes
+        assert engine_quality_class == classify_loss(loss_cp)
         assert abs(root_best_cp - expected_root_best_cp) <= 1e-6
         assert abs(move_cp - expected_root_side_move_cp) <= 1e-6
         assert abs(raw_loss_cp - expected_raw_loss_cp) <= 1e-6
@@ -193,6 +231,67 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
             assert abs(raw_loss_cp - 10.0) <= 1e-6
             assert abs(loss_cp - 10.0) <= 1e-6
     assert has_d2d4
+
+    root_threshold_rows = cur.execute(
+        """
+        SELECT
+            position_key,
+            good_inclusive_min_ceiling,
+            good_exclusive_min_ceiling,
+            good_inclusive_min_move,
+            good_exclusive_min_move,
+            accepted_move_count,
+            accepted_move_count_good_inclusive,
+            accepted_move_count_good_exclusive,
+            failed_move_count
+        FROM root_engine_thresholds
+        """
+    ).fetchall()
+    assert len(root_threshold_rows) == root_count
+    for row in root_threshold_rows:
+        (
+            position_key,
+            stored_good_inclusive_min_ceiling,
+            stored_good_exclusive_min_ceiling,
+            stored_good_inclusive_min_move,
+            stored_good_exclusive_min_move,
+            accepted_move_count,
+            accepted_move_count_good_inclusive,
+            accepted_move_count_good_exclusive,
+            failed_move_count,
+        ) = row
+        root_moves = cur.execute(
+            """
+            SELECT move_uci, ceiling, engine_quality_class
+            FROM move_engine_evals
+            WHERE position_key=?1
+            ORDER BY popularity_rank ASC, move_uci ASC
+            """,
+            (position_key,),
+        ).fetchall()
+        non_fail = [(move_uci, ceiling) for move_uci, ceiling, cls in root_moves if cls != "fail"]
+        good_exclusive = [(move_uci, ceiling) for move_uci, ceiling, cls in root_moves if cls in ("book", "best", "excellent")]
+        fail_rows = [(move_uci, ceiling) for move_uci, ceiling, cls in root_moves if cls == "fail"]
+
+        assert accepted_move_count == len(non_fail)
+        assert accepted_move_count_good_inclusive == len(non_fail)
+        assert accepted_move_count_good_exclusive == len(good_exclusive)
+        assert failed_move_count == len(fail_rows)
+
+        if non_fail:
+            expected_inclusive_move, expected_inclusive_ceiling = min(non_fail, key=lambda pair: pair[1])
+            assert abs(stored_good_inclusive_min_ceiling - expected_inclusive_ceiling) <= 1e-6
+            assert stored_good_inclusive_min_move == expected_inclusive_move
+        else:
+            assert stored_good_inclusive_min_ceiling is None
+            assert stored_good_inclusive_min_move is None
+        if good_exclusive:
+            expected_exclusive_move, expected_exclusive_ceiling = min(good_exclusive, key=lambda pair: pair[1])
+            assert abs(stored_good_exclusive_min_ceiling - expected_exclusive_ceiling) <= 1e-6
+            assert stored_good_exclusive_min_move == expected_exclusive_move
+        else:
+            assert stored_good_exclusive_min_ceiling is None
+            assert stored_good_exclusive_min_move is None
 
     fixture_white = cur.execute(
         """
@@ -232,25 +331,26 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
         INSERT INTO move_engine_evals(
             position_key, move_uci, move_support, popularity_rank,
             root_best_cp, move_cp, raw_loss_cp, loss_cp,
-            is_engine_accepted, is_engine_fail, eval_source, cache_hit
+            engine_quality_class, ceiling, is_engine_accepted, is_engine_fail, eval_source, cache_hit
         )
-        VALUES(?1, ?2, 1, 999, 5.0, 12.0, -7.0, 0.0, 1, 0, 'validator_fixture', 0)
+        VALUES(?1, ?2, 1, 999, 5.0, 12.0, -7.0, 0.0, 'book', 0.77, 1, 0, 'validator_fixture', 0)
         """,
         ("validator_fixture_position w - - 0 1", "a2a3"),
     )
     db.commit()
     negative_raw_fixture = cur.execute(
         """
-        SELECT raw_loss_cp, loss_cp, is_engine_accepted, is_engine_fail
+        SELECT raw_loss_cp, loss_cp, engine_quality_class, is_engine_accepted, is_engine_fail
         FROM move_engine_evals
         WHERE position_key=?1 AND move_uci=?2
         """,
         ("validator_fixture_position w - - 0 1", "a2a3"),
     ).fetchone()
     assert negative_raw_fixture is not None
-    raw_loss_cp, loss_cp, is_engine_accepted, is_engine_fail = negative_raw_fixture
+    raw_loss_cp, loss_cp, engine_quality_class, is_engine_accepted, is_engine_fail = negative_raw_fixture
     assert raw_loss_cp < 0.0
     assert abs(loss_cp - max(0.0, raw_loss_cp)) <= 1e-6
+    assert engine_quality_class == classify_loss(loss_cp)
     assert is_engine_accepted == 1
     assert is_engine_fail == 0
 
