@@ -124,6 +124,11 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     ).fetchone()[0]
     assert inconsistent_loss_rows == 0
 
+    negative_accepted_loss_rows = cur.execute(
+        "SELECT COUNT(*) FROM move_engine_evals WHERE is_engine_accepted=1 AND loss_cp < 0"
+    ).fetchone()[0]
+    assert negative_accepted_loss_rows == 0
+
     accepted_invalid_loss_rows = cur.execute(
         """
         SELECT COUNT(*)
@@ -134,6 +139,9 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
         (engine_max_loss_cp,),
     ).fetchone()[0]
     assert accepted_invalid_loss_rows == 0
+
+    def expected_raw_root_cp_from_engine() -> float:
+        return 30.0
 
     def expected_raw_post_move_cp_from_engine(move_uci: str) -> float:
         if move_uci == "e2e4":
@@ -146,8 +154,10 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     assert len(eval_rows) > 0
     has_d2d4 = False
     for move_uci, move_cp, loss_cp, root_best_cp in eval_rows:
+        expected_root_best_cp = expected_raw_root_cp_from_engine()
         expected_root_side_move_cp = -expected_raw_post_move_cp_from_engine(move_uci)
-        expected_loss_cp = root_best_cp - expected_root_side_move_cp
+        expected_loss_cp = expected_root_best_cp - expected_root_side_move_cp
+        assert abs(root_best_cp - expected_root_best_cp) <= 1e-6
         assert abs(move_cp - expected_root_side_move_cp) <= 1e-6
         assert abs(loss_cp - expected_loss_cp) <= 1e-6
         if move_uci == "d2d4":
@@ -155,6 +165,36 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
             assert abs(move_cp - 20.0) <= 1e-6
             assert abs(loss_cp - 10.0) <= 1e-6
     assert has_d2d4
+
+    fixture_white = cur.execute(
+        """
+        SELECT position_key, move_uci, root_best_cp, move_cp, loss_cp
+        FROM move_engine_evals
+        WHERE instr(position_key, ' w ') > 0
+        ORDER BY popularity_rank ASC, move_uci ASC
+        LIMIT 1
+        """
+    ).fetchone()
+    fixture_black = cur.execute(
+        """
+        SELECT position_key, move_uci, root_best_cp, move_cp, loss_cp
+        FROM move_engine_evals
+        WHERE instr(position_key, ' b ') > 0
+        ORDER BY popularity_rank ASC, move_uci ASC
+        LIMIT 1
+        """
+    ).fetchone()
+    assert fixture_white is not None
+    assert fixture_black is not None
+
+    for position_key, move_uci, root_best_cp, move_cp, loss_cp in (fixture_white, fixture_black):
+        raw_root_best_cp = expected_raw_root_cp_from_engine()
+        raw_post_move_cp = expected_raw_post_move_cp_from_engine(move_uci)
+        expected_move_cp_for_root_side = -raw_post_move_cp
+        expected_loss_cp = raw_root_best_cp - expected_move_cp_for_root_side
+        assert abs(root_best_cp - raw_root_best_cp) <= 1e-6
+        assert abs(move_cp - expected_move_cp_for_root_side) <= 1e-6
+        assert abs(loss_cp - expected_loss_cp) <= 1e-6
 
     priors = cur.execute("SELECT COUNT(*) FROM accepted_bucket_ceiling_priors").fetchone()[0]
     assert priors > 0

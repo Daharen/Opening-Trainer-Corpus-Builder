@@ -326,10 +326,10 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                 ++cache_hits;
                 return {*cached, true};
             }
-            const double cp = engine.eval_cp(fen, move_uci.empty() ? std::nullopt : std::optional<std::string>(move_uci), options.engine_movetime_ms);
-            cache.put(key, position_key, move_uci, engine.engine_id(), options.engine_movetime_ms, ph, cp);
+            const double raw_engine_cp = engine.eval_cp(fen, move_uci.empty() ? std::nullopt : std::optional<std::string>(move_uci), options.engine_movetime_ms);
+            cache.put(key, position_key, move_uci, engine.engine_id(), options.engine_movetime_ms, ph, raw_engine_cp);
             ++cache_misses;
-            return {cp, false};
+            return {raw_engine_cp, false};
         };
 
         for (const auto& root : roots) {
@@ -354,7 +354,8 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
             const std::string fen = board.to_fen();
 
             const Color root_side = board.side_to_move();
-            const auto [root_best_cp_for_root_side, root_cached] = eval_at(root.position_key, fen, "");
+            const auto [raw_root_best_cp, root_cached] = eval_at(root.position_key, fen, "");
+            const double root_best_cp_for_root_side = raw_root_best_cp;
             ++baseline_evals;
 
             std::vector<RetainedMove> candidate_moves = root.moves;
@@ -367,15 +368,17 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                 if (!resolved.has_value()) continue;
                 const ChessBoard board_after_move = board.after_move(*resolved);
 
-                const auto [raw_post_move_cp_from_engine, move_cached] = eval_at(root.position_key, fen, mv.move_uci);
+                const auto [raw_post_move_cp, move_cached] = eval_at(root.position_key, fen, mv.move_uci);
                 ++candidate_evals;
                 const Color side_to_move_after_move = board_after_move.side_to_move();
                 if (side_to_move_after_move == root_side) {
                     throw std::runtime_error("post-move side-to-move unexpectedly unchanged in stage-b overlay");
                 }
-                const double normalized_move_cp_for_root_side = -raw_post_move_cp_from_engine;
-                const double loss_cp_for_root_side = root_best_cp_for_root_side - normalized_move_cp_for_root_side;
-                const bool accepted = loss_cp_for_root_side <= static_cast<double>(options.engine_max_loss_cp);
+                const double move_cp_for_root_side = -raw_post_move_cp;
+                const double loss_cp_for_root_side = root_best_cp_for_root_side - move_cp_for_root_side;
+                const bool accepted =
+                    loss_cp_for_root_side >= 0.0 &&
+                    loss_cp_for_root_side <= static_cast<double>(options.engine_max_loss_cp);
 
                 move_evals.push_back(MoveEval{
                     .position_key = root.position_key,
@@ -383,7 +386,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                     .move_support = mv.move_support,
                     .popularity_rank = mv.popularity_rank,
                     .root_best_cp = root_best_cp_for_root_side,
-                    .move_cp = normalized_move_cp_for_root_side,
+                    .move_cp = move_cp_for_root_side,
                     .loss_cp = loss_cp_for_root_side,
                     .is_engine_accepted = accepted ? 1 : 0,
                     .is_engine_fail = accepted ? 0 : 1,
