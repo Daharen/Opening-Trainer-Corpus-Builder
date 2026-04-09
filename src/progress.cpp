@@ -64,10 +64,12 @@ std::string to_string(const ProgressStage stage) {
     switch (stage) {
         case ProgressStage::Idle: return "idle";
         case ProgressStage::Preflight: return "preflight";
+        case ProgressStage::LoadPrestockfish: return "load-prestockfish";
         case ProgressStage::PlanRanges: return "plan-ranges";
         case ProgressStage::ScanHeaders: return "scan-headers";
         case ProgressStage::AggregateEmpiricalScreen: return "aggregate-empirical-screen";
         case ProgressStage::ComputeSigmaPriors: return "compute-sigma-priors";
+        case ProgressStage::ComputeAcceptedPriors: return "compute-accepted-priors";
         case ProgressStage::EngineBaselineScreen: return "engine-baseline-screen";
         case ProgressStage::ExtractOpenings: return "extract-openings";
         case ProgressStage::AggregateCounts: return "aggregate-counts";

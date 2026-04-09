@@ -16,10 +16,12 @@ namespace otcb {
 enum class ProgressStage {
     Idle,
     Preflight,
+    LoadPrestockfish,
     PlanRanges,
     ScanHeaders,
     AggregateEmpiricalScreen,
     ComputeSigmaPriors,
+    ComputeAcceptedPriors,
     EngineBaselineScreen,
     ExtractOpenings,
     AggregateCounts,
