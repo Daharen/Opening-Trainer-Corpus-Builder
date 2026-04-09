@@ -84,34 +84,54 @@ struct PriorAccumulator {
 
 constexpr double kScoreInvariantEpsilon = 1e-9;
 
-MoveEval make_validated_move_eval_row(const RootData& root,
-                                      const RetainedMove& mv,
-                                      double raw_root_best_cp,
-                                      double raw_post_move_cp,
-                                      bool root_cached,
-                                      bool move_cached,
-                                      int engine_max_loss_cp) {
+enum class MoveClassification {
+    Accepted,
+    FailedAboveThreshold,
+    NegativeLossAnomaly,
+};
+
+struct ClassifiedMoveEval {
+    MoveEval row;
+    MoveClassification classification = MoveClassification::FailedAboveThreshold;
+    double raw_root_best_cp = 0.0;
+    double raw_post_move_cp = 0.0;
+    double normalized_move_cp_for_root_side = 0.0;
+    double computed_loss_cp = 0.0;
+};
+
+std::string to_string(MoveClassification classification) {
+    switch (classification) {
+        case MoveClassification::Accepted: return "accepted";
+        case MoveClassification::FailedAboveThreshold: return "failed_above_threshold";
+        case MoveClassification::NegativeLossAnomaly: return "negative_loss_anomaly";
+    }
+    return "failed_above_threshold";
+}
+
+std::string color_to_string(Color c) {
+    return c == Color::White ? "white" : "black";
+}
+
+ClassifiedMoveEval make_validated_move_eval_row(const RootData& root,
+                                                const RetainedMove& mv,
+                                                double raw_root_best_cp,
+                                                double raw_post_move_cp,
+                                                bool root_cached,
+                                                bool move_cached,
+                                                int engine_max_loss_cp) {
     const double root_best_cp_for_root_side = raw_root_best_cp;
     const double move_cp_for_root_side = -raw_post_move_cp;
     const double computed_loss_cp = root_best_cp_for_root_side - move_cp_for_root_side;
 
-    const bool accepted =
-        computed_loss_cp >= 0.0 &&
-        computed_loss_cp <= static_cast<double>(engine_max_loss_cp);
-    const bool failed = !accepted;
+    MoveClassification classification = MoveClassification::FailedAboveThreshold;
+    if (computed_loss_cp < 0.0) {
+        classification = MoveClassification::NegativeLossAnomaly;
+    } else if (computed_loss_cp <= static_cast<double>(engine_max_loss_cp)) {
+        classification = MoveClassification::Accepted;
+    }
 
-    if (accepted && computed_loss_cp < 0.0) {
-        throw std::runtime_error("stage-b invariant violation: accepted row has negative loss_cp");
-    }
-    if (accepted && computed_loss_cp > static_cast<double>(engine_max_loss_cp)) {
-        throw std::runtime_error("stage-b invariant violation: accepted row exceeds engine_max_loss_cp");
-    }
-    if (failed && computed_loss_cp <= static_cast<double>(engine_max_loss_cp)) {
-        throw std::runtime_error("stage-b invariant violation: failed row must have loss_cp > engine_max_loss_cp");
-    }
-    if ((accepted ? 1 : 0) + (failed ? 1 : 0) != 1) {
-        throw std::runtime_error("stage-b invariant violation: accepted/fail flags must be mutually exclusive");
-    }
+    const bool accepted = classification == MoveClassification::Accepted;
+    const bool failed = classification == MoveClassification::FailedAboveThreshold;
 
     MoveEval row{
         .position_key = root.position_key,
@@ -129,7 +149,14 @@ MoveEval make_validated_move_eval_row(const RootData& root,
     if (std::abs(row.loss_cp - (row.root_best_cp - row.move_cp)) > kScoreInvariantEpsilon) {
         throw std::runtime_error("stage-b invariant violation: loss_cp must equal root_best_cp - move_cp");
     }
-    return row;
+    return ClassifiedMoveEval{
+        .row = std::move(row),
+        .classification = classification,
+        .raw_root_best_cp = raw_root_best_cp,
+        .raw_post_move_cp = raw_post_move_cp,
+        .normalized_move_cp_for_root_side = move_cp_for_root_side,
+        .computed_loss_cp = computed_loss_cp,
+    };
 }
 
 std::string trim(const std::string& in) {
@@ -205,6 +232,52 @@ std::optional<Move> resolve_uci_move(const ChessBoard& board, const std::string&
         if (move_to_uci(m) == move_uci) return m;
     }
     return std::nullopt;
+}
+
+void write_negative_loss_anomaly_artifact(const std::filesystem::path& bundle_dir,
+                                          const std::string& artifact_id,
+                                          const RootData& root,
+                                          const RetainedMove& mv,
+                                          const std::string& fen_root,
+                                          const std::string& fen_after_move,
+                                          Color root_side,
+                                          Color side_to_move_after_move,
+                                          const ClassifiedMoveEval& classified_eval,
+                                          int engine_max_loss_cp,
+                                          bool root_cached,
+                                          bool move_cached,
+                                          const std::string& engine_id,
+                                          int engine_movetime_ms,
+                                          const std::string& engine_accept_policy,
+                                          const std::string& engine_reference_mode) {
+    const auto anomaly_path = bundle_dir / "progress" / "first_negative_loss_anomaly.json";
+    std::ofstream out(anomaly_path);
+    if (!out) {
+        throw std::runtime_error("failed to write stage-b anomaly artifact: " + anomaly_path.string());
+    }
+    out << "{\n";
+    out << "  \"artifact_id\": \"" << json_escape(artifact_id) << "\",\n";
+    out << "  \"position_key\": \"" << json_escape(root.position_key) << "\",\n";
+    out << "  \"move_uci\": \"" << json_escape(mv.move_uci) << "\",\n";
+    out << "  \"move_support\": " << mv.move_support << ",\n";
+    out << "  \"popularity_rank\": " << mv.popularity_rank << ",\n";
+    out << "  \"root_side\": \"" << color_to_string(root_side) << "\",\n";
+    out << "  \"side_to_move_after_move\": \"" << color_to_string(side_to_move_after_move) << "\",\n";
+    out << "  \"fen_root\": \"" << json_escape(fen_root) << "\",\n";
+    out << "  \"fen_after_move\": \"" << json_escape(fen_after_move) << "\",\n";
+    out << "  \"raw_root_best_cp\": " << classified_eval.raw_root_best_cp << ",\n";
+    out << "  \"raw_post_move_cp\": " << classified_eval.raw_post_move_cp << ",\n";
+    out << "  \"normalized_move_cp_for_root_side\": " << classified_eval.normalized_move_cp_for_root_side << ",\n";
+    out << "  \"computed_loss_cp\": " << classified_eval.computed_loss_cp << ",\n";
+    out << "  \"engine_max_loss_cp\": " << engine_max_loss_cp << ",\n";
+    out << "  \"root_cached\": " << (root_cached ? "true" : "false") << ",\n";
+    out << "  \"move_cached\": " << (move_cached ? "true" : "false") << ",\n";
+    out << "  \"engine_id\": \"" << json_escape(engine_id) << "\",\n";
+    out << "  \"engine_movetime_ms\": " << engine_movetime_ms << ",\n";
+    out << "  \"engine_accept_policy\": \"" << json_escape(engine_accept_policy) << "\",\n";
+    out << "  \"engine_reference_mode\": \"" << json_escape(engine_reference_mode) << "\",\n";
+    out << "  \"classification\": \"" << to_string(classified_eval.classification) << "\"\n";
+    out << "}\n";
 }
 
 std::filesystem::path stage_a_sqlite(const std::filesystem::path& bundle) {
@@ -288,6 +361,7 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
     int candidate_evals = 0;
     int found_baselines = 0;
     int missing_baselines = 0;
+    bool negative_loss_artifact_emitted = false;
 
     try {
         progress.stage_started(ProgressStage::Preflight, "preflight stockfish overlay");
@@ -423,14 +497,39 @@ int run_practical_risk_stockfish_overlay(const PracticalRiskStockfishOverlayOpti
                 if (side_to_move_after_move == root_side) {
                     throw std::runtime_error("post-move side-to-move unexpectedly unchanged in stage-b overlay");
                 }
-                move_evals.push_back(make_validated_move_eval_row(
+                const ClassifiedMoveEval classified_eval = make_validated_move_eval_row(
                     root,
                     mv,
                     raw_root_best_cp,
                     raw_post_move_cp,
                     root_cached,
                     move_cached,
-                    options.engine_max_loss_cp));
+                    options.engine_max_loss_cp);
+                if (classified_eval.classification == MoveClassification::NegativeLossAnomaly) {
+                    if (!negative_loss_artifact_emitted) {
+                        write_negative_loss_anomaly_artifact(
+                            bundle_dir,
+                            options.artifact_id,
+                            root,
+                            mv,
+                            fen,
+                            board_after_move.to_fen(),
+                            root_side,
+                            side_to_move_after_move,
+                            classified_eval,
+                            options.engine_max_loss_cp,
+                            root_cached,
+                            move_cached,
+                            engine.engine_id(),
+                            options.engine_movetime_ms,
+                            options.engine_accept_policy,
+                            options.engine_reference_mode);
+                        negative_loss_artifact_emitted = true;
+                    }
+                    throw std::runtime_error("stage-b negative-loss anomaly encountered; see progress/first_negative_loss_anomaly.json");
+                }
+
+                move_evals.push_back(classified_eval.row);
                 const MoveEval& persisted_row = move_evals.back();
                 const bool accepted = persisted_row.is_engine_accepted == 1;
 
