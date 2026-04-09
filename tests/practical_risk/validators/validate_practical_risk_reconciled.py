@@ -119,7 +119,7 @@ def make_stage_c_bundle(bundle: Path, band_id: str, rows):
 
 
 
-def validate_bundle(bundle: Path):
+def validate_bundle(bundle: Path, expected_bulk_moves: int):
     manifest = json.loads((bundle / "manifest.json").read_text())
     assert manifest["artifact_role"] == "practical_risk_reconciled"
     assert manifest["success_threads_emitted"] is False
@@ -206,8 +206,21 @@ def validate_bundle(bundle: Path):
     toggle_count = cur.execute("SELECT COUNT(*) FROM failure_explanations WHERE toggle_state_required IS NOT NULL").fetchone()[0]
     assert toggle_count > 0
 
-    db.close()
+    bulk_count = cur.execute("""
+        SELECT COUNT(*)
+        FROM reconciled_move_admissions
+        WHERE position_key='p_bulk'
+    """).fetchone()[0]
+    assert bulk_count == expected_bulk_moves * 3
 
+    bulk_summary = cur.execute("""
+        SELECT COUNT(*)
+        FROM reconciled_root_summaries
+        WHERE position_key='p_bulk'
+    """).fetchone()[0]
+    assert bulk_summary == 3
+
+    db.close()
 
 
 def main():
@@ -250,6 +263,14 @@ def main():
         ("p1", "m_nothr", 70, 5, 0.30, "fail", 0, 1, 90.0, 90.0, None, None, None, None, 0, 0, "no_good_inclusive_min_available", "no_good_exclusive_min_available"),
     ]
 
+
+    bulk_move_count = 250
+    for i in range(bulk_move_count):
+        move = f"m_bulk_{i:04d}"
+        high_rows.append(("p_bulk", move, 40, i + 1, 0.71, "good", 1, 0, 0.0, 0.0, move, 0.60, move, 0.60, 1, 0, "accepted_good_inclusive", "good_rejected_in_strict_mode"))
+        mid_rows.append(("p_bulk", move, 38, i + 1, 0.69, "good", 1, 0, 0.0, 0.0, move, 0.60, move, 0.60, 1, 0, "accepted_good_inclusive", "good_rejected_in_strict_mode"))
+        low_rows.append(("p_bulk", move, 35, i + 1, 0.68, "good", 1, 0, 0.0, 0.0, move, 0.60, move, 0.60, 1, 0, "accepted_good_inclusive", "good_rejected_in_strict_mode"))
+
     make_stage_c_bundle(high_bundle, "2000-2199", high_rows)
     make_stage_c_bundle(mid_bundle, "1600-1799", mid_rows)
     make_stage_c_bundle(low_bundle, "1200-1399", low_rows)
@@ -271,7 +292,7 @@ def main():
     ]
     run(cmd)
 
-    validate_bundle(out_dir / "family_fixture")
+    validate_bundle(out_dir / "family_fixture", expected_bulk_moves=bulk_move_count)
     print("validate_practical_risk_reconciled: PASS")
 
 
