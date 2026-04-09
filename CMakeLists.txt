@@ -243,6 +243,22 @@ else()
 endif()
 target_link_libraries(overlay-practical-risk-stockfish PRIVATE ${OTCB_SQLITE_TARGET})
 
+add_executable(build-practical-risk-final
+    src/practical_risk/final/build_practical_risk_final_main.cpp
+    src/practical_risk/final/practical_risk_final.cpp
+    src/progress.cpp
+)
+target_include_directories(build-practical-risk-final
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(MSVC)
+    target_compile_options(build-practical-risk-final PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(build-practical-risk-final PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+target_link_libraries(build-practical-risk-final PRIVATE ${OTCB_SQLITE_TARGET})
+
 if(OTCB_BEHAVIORAL_EXTRACT_ENABLE_ZSTD)
     find_package(zstd QUIET CONFIG)
     if(TARGET zstd::libzstd_shared)
@@ -350,6 +366,12 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/practical_risk/validators/validate_practical_risk_stockfish_overlay.py
                 $<TARGET_FILE:build-practical-risk-prestockfish>
                 $<TARGET_FILE:overlay-practical-risk-stockfish>
+                ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME practical_risk_final_validation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/practical_risk/validators/validate_practical_risk_final.py
+                $<TARGET_FILE:build-practical-risk-final>
                 ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()
