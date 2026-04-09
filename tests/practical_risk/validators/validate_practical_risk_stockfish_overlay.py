@@ -128,10 +128,15 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     assert accepted_white > 0
     assert accepted_black > 0
 
-    inconsistent_loss_rows = cur.execute(
-        "SELECT COUNT(*) FROM move_engine_evals WHERE abs((root_best_cp - move_cp) - loss_cp) > 1e-6"
+    inconsistent_raw_loss_rows = cur.execute(
+        "SELECT COUNT(*) FROM move_engine_evals WHERE abs((root_best_cp - move_cp) - raw_loss_cp) > 1e-6"
     ).fetchone()[0]
-    assert inconsistent_loss_rows == 0
+    assert inconsistent_raw_loss_rows == 0
+
+    inconsistent_effective_loss_rows = cur.execute(
+        "SELECT COUNT(*) FROM move_engine_evals WHERE abs(max(0.0, raw_loss_cp) - loss_cp) > 1e-6"
+    ).fetchone()[0]
+    assert inconsistent_effective_loss_rows == 0
 
     negative_accepted_loss_rows = cur.execute(
         "SELECT COUNT(*) FROM move_engine_evals WHERE is_engine_accepted=1 AND loss_cp < 0"
@@ -170,25 +175,28 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
             return -20.0
         return -20.0
 
-    eval_rows = cur.execute("SELECT move_uci, move_cp, loss_cp, root_best_cp FROM move_engine_evals").fetchall()
+    eval_rows = cur.execute("SELECT move_uci, move_cp, raw_loss_cp, loss_cp, root_best_cp FROM move_engine_evals").fetchall()
     assert len(eval_rows) > 0
     has_d2d4 = False
-    for move_uci, move_cp, loss_cp, root_best_cp in eval_rows:
+    for move_uci, move_cp, raw_loss_cp, loss_cp, root_best_cp in eval_rows:
         expected_root_best_cp = expected_raw_root_cp_from_engine()
         expected_root_side_move_cp = -expected_raw_post_move_cp_from_engine(move_uci)
-        expected_loss_cp = expected_root_best_cp - expected_root_side_move_cp
+        expected_raw_loss_cp = expected_root_best_cp - expected_root_side_move_cp
+        expected_loss_cp = max(0.0, expected_raw_loss_cp)
         assert abs(root_best_cp - expected_root_best_cp) <= 1e-6
         assert abs(move_cp - expected_root_side_move_cp) <= 1e-6
+        assert abs(raw_loss_cp - expected_raw_loss_cp) <= 1e-6
         assert abs(loss_cp - expected_loss_cp) <= 1e-6
         if move_uci == "d2d4":
             has_d2d4 = True
             assert abs(move_cp - 20.0) <= 1e-6
+            assert abs(raw_loss_cp - 10.0) <= 1e-6
             assert abs(loss_cp - 10.0) <= 1e-6
     assert has_d2d4
 
     fixture_white = cur.execute(
         """
-        SELECT position_key, move_uci, root_best_cp, move_cp, loss_cp
+        SELECT position_key, move_uci, root_best_cp, move_cp, raw_loss_cp, loss_cp
         FROM move_engine_evals
         WHERE instr(position_key, ' w ') > 0
         ORDER BY popularity_rank ASC, move_uci ASC
@@ -197,7 +205,7 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     ).fetchone()
     fixture_black = cur.execute(
         """
-        SELECT position_key, move_uci, root_best_cp, move_cp, loss_cp
+        SELECT position_key, move_uci, root_best_cp, move_cp, raw_loss_cp, loss_cp
         FROM move_engine_evals
         WHERE instr(position_key, ' b ') > 0
         ORDER BY popularity_rank ASC, move_uci ASC
@@ -207,14 +215,44 @@ def validate_bundle(bundle: Path, expect_baseline: bool):
     assert fixture_white is not None
     assert fixture_black is not None
 
-    for position_key, move_uci, root_best_cp, move_cp, loss_cp in (fixture_white, fixture_black):
+    for position_key, move_uci, root_best_cp, move_cp, raw_loss_cp, loss_cp in (fixture_white, fixture_black):
         raw_root_best_cp = expected_raw_root_cp_from_engine()
         raw_post_move_cp = expected_raw_post_move_cp_from_engine(move_uci)
         expected_move_cp_for_root_side = -raw_post_move_cp
-        expected_loss_cp = raw_root_best_cp - expected_move_cp_for_root_side
+        expected_raw_loss_cp = raw_root_best_cp - expected_move_cp_for_root_side
+        expected_loss_cp = max(0.0, expected_raw_loss_cp)
         assert abs(root_best_cp - raw_root_best_cp) <= 1e-6
         assert abs(move_cp - expected_move_cp_for_root_side) <= 1e-6
+        assert abs(raw_loss_cp - expected_raw_loss_cp) <= 1e-6
         assert abs(loss_cp - expected_loss_cp) <= 1e-6
+
+    # Deterministic policy fixture for negative raw loss clamping semantics.
+    cur.execute(
+        """
+        INSERT INTO move_engine_evals(
+            position_key, move_uci, move_support, popularity_rank,
+            root_best_cp, move_cp, raw_loss_cp, loss_cp,
+            is_engine_accepted, is_engine_fail, eval_source, cache_hit
+        )
+        VALUES(?1, ?2, 1, 999, 5.0, 12.0, -7.0, 0.0, 1, 0, 'validator_fixture', 0)
+        """,
+        ("validator_fixture_position w - - 0 1", "a2a3"),
+    )
+    db.commit()
+    negative_raw_fixture = cur.execute(
+        """
+        SELECT raw_loss_cp, loss_cp, is_engine_accepted, is_engine_fail
+        FROM move_engine_evals
+        WHERE position_key=?1 AND move_uci=?2
+        """,
+        ("validator_fixture_position w - - 0 1", "a2a3"),
+    ).fetchone()
+    assert negative_raw_fixture is not None
+    raw_loss_cp, loss_cp, is_engine_accepted, is_engine_fail = negative_raw_fixture
+    assert raw_loss_cp < 0.0
+    assert abs(loss_cp - max(0.0, raw_loss_cp)) <= 1e-6
+    assert is_engine_accepted == 1
+    assert is_engine_fail == 0
 
     priors = cur.execute("SELECT COUNT(*) FROM accepted_bucket_ceiling_priors").fetchone()[0]
     assert priors > 0
