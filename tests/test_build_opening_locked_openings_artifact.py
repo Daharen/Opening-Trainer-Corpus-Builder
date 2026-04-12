@@ -247,7 +247,88 @@ def test_family_artifact_derivation_and_manifest(tmp_path: Path):
             where c.node_name='Nimzo-Indian Defense'
             """
         ).fetchone()[0]
-        assert internal_parent_candidates >= 2
+        assert internal_parent_candidates >= 1
+
+        preserved_membership_edges = con.execute(
+            """
+            select count(*)
+            from family_edges
+            where edge_kind='preserved_co_membership'
+            """
+        ).fetchone()[0]
+        assert preserved_membership_edges == 0
+    finally:
+        con.close()
+
+
+def _write_overlap_regression_source(root: Path):
+    rows = [
+        ("A00", "Alpha Opening", "1.d4 Nf6 2.c4 e6"),
+        ("A01", "Alpha Opening: Main Line", "1.d4 Nf6 2.c4 e6 3.Nc3 Bb4"),
+        ("B00", "Beta Defense", "1.d4 d5 2.c4 e6"),
+    ]
+    for fn in ["a.tsv", "b.tsv", "c.tsv", "d.tsv", "e.tsv"]:
+        lines = ["eco\tname\tpgn"]
+        if fn == "a.tsv":
+            for eco, name, pgn in rows:
+                lines.append(f"{eco}\t{name}\t{pgn}")
+        (root / fn).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_overlap_does_not_drive_family_parent_or_ui_parent(tmp_path: Path):
+    src = tmp_path / "src"
+    out = tmp_path / "out"
+    src.mkdir(); out.mkdir()
+    _write_overlap_regression_source(src)
+
+    bundle = build_artifact(src, out, "family_overlap_regression", artifact_kind="opening_locked_openings_family_v1")
+    con = _open_db(bundle)
+    try:
+        transposition_cnt = con.execute(
+            """
+            select count(*)
+            from transposition_edges te
+            join opening_nodes a on a.node_id=te.from_node_id
+            join opening_nodes b on b.node_id=te.to_node_id
+            where ((a.node_name='Alpha Opening: Main Line' and b.node_name='Beta Defense')
+                or (a.node_name='Beta Defense' and b.node_name='Alpha Opening: Main Line'))
+              and te.shared_position_count > 0
+            """
+        ).fetchone()[0]
+        assert transposition_cnt == 1
+
+        overlap_parent_edges = con.execute(
+            """
+            select count(*)
+            from family_edges fe
+            join opening_nodes p on p.node_id=fe.parent_node_id
+            join opening_nodes c on c.node_id=fe.child_node_id
+            where p.node_name='Beta Defense'
+              and c.node_name='Alpha Opening: Main Line'
+            """
+        ).fetchone()[0]
+        assert overlap_parent_edges == 0
+
+        ui_parent = con.execute(
+            """
+            select p.node_name
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            join opening_nodes p on p.node_id=ut.ui_parent_node_id
+            where c.node_name='Alpha Opening: Main Line'
+            """
+        ).fetchone()
+        assert ui_parent == ("Alpha Opening",)
+
+        beta_ui_parent_count = con.execute(
+            """
+            select count(*)
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            where c.node_name='Beta Defense'
+            """
+        ).fetchone()[0]
+        assert beta_ui_parent_count == 0
     finally:
         con.close()
 
