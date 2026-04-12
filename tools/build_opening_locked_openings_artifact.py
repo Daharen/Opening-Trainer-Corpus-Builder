@@ -402,10 +402,6 @@ def _derive_family_tables(node_names, node_id, kind, parsed, split_nodes_by_exac
     for exact_name, p in canonical_by_exact.items():
         term_pos_to_exact.setdefault(p.position_keys[-1], set()).add(exact_name)
 
-    membership_nodes_by_position = {}
-    for (pid, nid), _vals in memberships.items():
-        membership_nodes_by_position.setdefault(pid, set()).add(nid)
-
     edge_records = {}
 
     def add_edge(parent_name, child_name, edge_kind, evidence_score):
@@ -427,23 +423,11 @@ def _derive_family_tables(node_names, node_id, kind, parsed, split_nodes_by_exac
                 if earlier_exact != exact_name:
                     add_edge(earlier_exact, exact_name, "canonical_line_named_prefix", 1.0 / (len(line.position_keys) - i))
 
-    for exact_name, line in canonical_by_exact.items():
-        total = len(line.position_keys)
-        counts = {}
-        for pos_key in line.position_keys:
-            for nid in membership_nodes_by_position.get(position_id[pos_key], set()):
-                candidate = node_names[nid - 1]
-                if candidate == exact_name:
-                    continue
-                counts[candidate] = counts.get(candidate, 0) + 1
-        for candidate, count in counts.items():
-            add_edge(candidate, exact_name, "preserved_co_membership", count / float(total))
-
     parent_candidates = {}
     for (_parent_id, child_id, edge_kind), score in edge_records.items():
         parent_candidates.setdefault(child_id, []).append((edge_kind, score, _parent_id))
 
-    precedence = {"lexical_hierarchy": 0, "canonical_line_named_prefix": 1, "preserved_co_membership": 2}
+    precedence = {"lexical_hierarchy": 0, "canonical_line_named_prefix": 1}
     canonical_parent = {}
     for child_id, choices in parent_candidates.items():
         canonical_parent[child_id] = min(choices, key=lambda x: (precedence[x[0]], -x[1], x[2], edge_records[(x[2], child_id, x[0])]))
@@ -454,14 +438,10 @@ def _derive_family_tables(node_names, node_id, kind, parsed, split_nodes_by_exac
         family_edges.append((parent_id, child_id, edge_kind, score, is_ui))
 
     family_memberships = []
-    for exact_name, line in canonical_by_exact.items():
+    for exact_name in canonical_by_exact:
         exact_id = node_id[exact_name]
         for member in split_nodes_by_exact[exact_name]:
             family_memberships.append((node_id[member], exact_id, "lexical_path_member"))
-        for pos_key in line.position_keys:
-            for nid in sorted(membership_nodes_by_position.get(position_id[pos_key], set())):
-                if nid != exact_id:
-                    family_memberships.append((nid, exact_id, "canonical_line_membership_overlap"))
     family_memberships = sorted(set(family_memberships))
 
     ui_tree = []
@@ -612,8 +592,8 @@ create table ui_tree(child_node_id integer primary key, ui_parent_node_id intege
     meta_rows = [("artifact_schema_version", "2" if family_enabled else "1"), ("artifact_kind", artifact_kind), ("position_key_format", "fen_pieces_side_castling_legal_ep")]
     if family_enabled:
         meta_rows.extend([
-            ("canonical_ui_parent_rule", "lexical_hierarchy_then_canonical_line_named_prefix_then_preserved_co_membership_then_lexical_tiebreak"),
-            ("family_derivation_rules", "lexical_hierarchy|canonical_line_earlier_named_positions|path_membership_overlap"),
+            ("canonical_ui_parent_rule", "lexical_hierarchy_then_canonical_line_named_prefix_then_lexical_tiebreak"),
+            ("family_derivation_rules", "lexical_hierarchy|canonical_line_earlier_named_positions"),
             ("transposition_detection_rule", "shared_non_root_position_keys_between_distinct_canonical_exact_lines"),
         ])
     con.executemany("insert into meta(key,value) values(?,?)", sorted(meta_rows))
@@ -650,9 +630,8 @@ create table ui_tree(child_node_id integer primary key, ui_parent_node_id intege
             "family_derivation_rules": [
                 "lexical_hierarchy",
                 "canonical_line_earlier_named_positions",
-                "path_membership_overlap",
             ],
-            "canonical_ui_parent_rule": "lexical_hierarchy_then_canonical_line_named_prefix_then_preserved_co_membership_then_lexical_tiebreak",
+            "canonical_ui_parent_rule": "lexical_hierarchy_then_canonical_line_named_prefix_then_lexical_tiebreak",
             "transposition_detection_rule": "shared_non_root_position_keys_between_distinct_canonical_exact_lines",
         })
     (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

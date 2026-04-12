@@ -86,24 +86,30 @@ Both artifact kinds preserve the exact-opening tables:
 
 `family_edges` can contain multiple parent candidates for a child node. This is the internal truth model.
 
+`family_edges.edge_kind` is intentionally conservative and currently includes only:
+
+- `lexical_hierarchy`
+- `canonical_line_named_prefix`
+
 ### Transposition relationships (not a tree)
 
 - `transposition_edges(from_node_id, to_node_id, shared_position_count, earliest_shared_ply, relationship_kind)`
 
 These rows capture shared-position convergence between distinct canonical exact lines.
+This shared-position convergence is runtime carveout evidence, not family-tree parentage.
 
 ### Canonical UI projection (single parent)
 
 - `ui_tree(child_node_id, ui_parent_node_id, selection_depth)`
 
-`ui_tree` is **not** the full truth model; it is a deterministic display projection built from `family_edges`.
+`ui_tree` is **not** the full truth model; it is a deterministic display projection built from conservative parent signals.
+It intentionally does not use shared-position overlap or transposition evidence as parentage, and may leave more nodes as roots.
 
 Canonical parent precedence:
 
 1. `lexical_hierarchy`
 2. `canonical_line_named_prefix`
-3. `preserved_co_membership`
-4. lexical tie-break by node id
+3. lexical tie-break by node id
 
 ## Manifest additions for family-aware artifacts
 
