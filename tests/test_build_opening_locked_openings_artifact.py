@@ -32,6 +32,7 @@ def test_build_and_semantics(tmp_path: Path):
     bundle = build_artifact(src, out, "opening_locked_lichess_openings_v1")
     manifest = json.loads((bundle / "manifest.json").read_text())
     assert manifest["artifact_kind"] == "opening_locked_openings"
+    assert manifest["artifact_schema_version"] == "1"
     assert manifest["total_exact_lines"] == 3
 
     con = _open_db(bundle)
@@ -150,3 +151,126 @@ def test_deterministic_rerun(tmp_path: Path):
             con.close()
 
     assert dump(b1 / "opening_locked_openings.sqlite") == dump(b2 / "opening_locked_openings.sqlite")
+
+
+def _write_family_source(root: Path):
+    rows = [
+        ("B90", "Sicilian Defense: Najdorf Variation", "1.e4 c5 2.Nf3 d6"),
+        ("B91", "Sicilian Defense: Najdorf Variation, English Attack", "1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4"),
+        ("A40", "Queen's Pawn Game", "1.d4 Nf6"),
+        ("E20", "Nimzo-Indian Defense", "1.d4 Nf6 2.c4 e6 3.Nc3 Bb4"),
+        ("E20", "Nimzo-Indian Defense: English Move Order", "1.c4 Nf6 2.Nc3 e6 3.d4 Bb4"),
+    ]
+    for fn in ["a.tsv", "b.tsv", "c.tsv", "d.tsv", "e.tsv"]:
+        lines = ["eco\tname\tpgn"]
+        if fn == "a.tsv":
+            for eco, name, pgn in rows:
+                lines.append(f"{eco}\t{name}\t{pgn}")
+        (root / fn).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_family_artifact_derivation_and_manifest(tmp_path: Path):
+    src = tmp_path / "src"
+    out = tmp_path / "out"
+    src.mkdir(); out.mkdir()
+    _write_family_source(src)
+
+    bundle = build_artifact(src, out, "opening_locked_lichess_openings_family_v1", artifact_kind="opening_locked_openings_family_v1")
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    assert manifest["artifact_kind"] == "opening_locked_openings_family_v1"
+    assert manifest["artifact_schema_version"] == "2"
+    assert manifest["family_edge_count"] > 0
+    assert manifest["transposition_edge_count"] > 0
+    assert manifest["ui_tree_node_count"] > 0
+
+    con = _open_db(bundle)
+    try:
+        # lexical hierarchy parent signal is preserved as an internal family edge
+        lexical_edge = con.execute(
+            """
+            select count(*)
+            from family_edges fe
+            join opening_nodes p on p.node_id=fe.parent_node_id
+            join opening_nodes c on c.node_id=fe.child_node_id
+            where p.node_name='Sicilian Defense: Najdorf Variation'
+              and c.node_name='Sicilian Defense: Najdorf Variation, English Attack'
+              and fe.edge_kind='lexical_hierarchy'
+            """
+        ).fetchone()[0]
+        assert lexical_edge == 1
+
+        # earlier named opening on canonical line becomes a parent candidate
+        named_prefix_edge = con.execute(
+            """
+            select count(*)
+            from family_edges fe
+            join opening_nodes p on p.node_id=fe.parent_node_id
+            join opening_nodes c on c.node_id=fe.child_node_id
+            where p.node_name='Queen''s Pawn Game'
+              and c.node_name='Nimzo-Indian Defense'
+              and fe.edge_kind='canonical_line_named_prefix'
+            """
+        ).fetchone()[0]
+        assert named_prefix_edge == 1
+
+        # transposition detection emits explicit shared-position edges
+        transposition_cnt = con.execute(
+            """
+            select count(*)
+            from transposition_edges te
+            join opening_nodes a on a.node_id=te.from_node_id
+            join opening_nodes b on b.node_id=te.to_node_id
+            where ((a.node_name='Nimzo-Indian Defense' and b.node_name='Nimzo-Indian Defense: English Move Order')
+                or (a.node_name='Nimzo-Indian Defense: English Move Order' and b.node_name='Nimzo-Indian Defense'))
+              and te.shared_position_count > 0
+              and te.earliest_shared_ply > 0
+            """
+        ).fetchone()[0]
+        assert transposition_cnt == 1
+
+        # ui_tree has exactly one canonical parent per child when multiple parent candidates exist
+        ui_count = con.execute(
+            """
+            select count(*)
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            where c.node_name='Nimzo-Indian Defense'
+            """
+        ).fetchone()[0]
+        assert ui_count == 1
+
+        internal_parent_candidates = con.execute(
+            """
+            select count(*)
+            from family_edges fe
+            join opening_nodes c on c.node_id=fe.child_node_id
+            where c.node_name='Nimzo-Indian Defense'
+            """
+        ).fetchone()[0]
+        assert internal_parent_candidates >= 2
+    finally:
+        con.close()
+
+
+def test_family_artifact_deterministic_rerun(tmp_path: Path):
+    src = tmp_path / "src"
+    out = tmp_path / "out"
+    src.mkdir(); out.mkdir()
+    _write_family_source(src)
+
+    b1 = build_artifact(src, out, "family_run_1", artifact_kind="opening_locked_openings_family_v1")
+    b2 = build_artifact(src, out, "family_run_2", artifact_kind="opening_locked_openings_family_v1")
+
+    def dump_family(db):
+        con = sqlite3.connect(db)
+        try:
+            data = []
+            for t in ["family_edges", "family_memberships", "transposition_edges", "ui_tree"]:
+                cols = len(con.execute(f"pragma table_info({t})").fetchall())
+                order_by = ','.join(str(i) for i in range(1, cols + 1))
+                data.append(con.execute(f"select * from {t} order by {order_by}").fetchall())
+            return data
+        finally:
+            con.close()
+
+    assert dump_family(b1 / "opening_locked_openings.sqlite") == dump_family(b2 / "opening_locked_openings.sqlite")
