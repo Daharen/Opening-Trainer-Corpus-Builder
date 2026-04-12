@@ -390,7 +390,107 @@ def git_provenance(source_root: Path):
     }
 
 
-def build_artifact(source_root: Path, output_root: Path, bundle_name: str):
+def _derive_family_tables(node_names, node_id, kind, parsed, split_nodes_by_exact, memberships, position_id):
+    canonical_by_exact = {}
+    by_name = {}
+    for p in parsed:
+        by_name.setdefault(p.row.name, []).append(p)
+    for exact_name, lines in by_name.items():
+        canonical_by_exact[exact_name] = min(lines, key=lambda p: (len(p.uci_moves), " ".join(p.uci_moves), p.row.source_file, p.row.source_row_number))
+
+    term_pos_to_exact = {}
+    for exact_name, p in canonical_by_exact.items():
+        term_pos_to_exact.setdefault(p.position_keys[-1], set()).add(exact_name)
+
+    membership_nodes_by_position = {}
+    for (pid, nid), _vals in memberships.items():
+        membership_nodes_by_position.setdefault(pid, set()).add(nid)
+
+    edge_records = {}
+
+    def add_edge(parent_name, child_name, edge_kind, evidence_score):
+        if parent_name == child_name:
+            return
+        key = (node_id[parent_name], node_id[child_name], edge_kind)
+        best = edge_records.get(key)
+        if best is None or evidence_score > best:
+            edge_records[key] = evidence_score
+
+    for name in node_names:
+        path = split_name_nodes(name)
+        if len(path) > 1:
+            add_edge(path[-2], name, "lexical_hierarchy", 1.0)
+
+    for exact_name, line in canonical_by_exact.items():
+        for i, pos_key in enumerate(line.position_keys[:-1]):
+            for earlier_exact in sorted(term_pos_to_exact.get(pos_key, set())):
+                if earlier_exact != exact_name:
+                    add_edge(earlier_exact, exact_name, "canonical_line_named_prefix", 1.0 / (len(line.position_keys) - i))
+
+    for exact_name, line in canonical_by_exact.items():
+        total = len(line.position_keys)
+        counts = {}
+        for pos_key in line.position_keys:
+            for nid in membership_nodes_by_position.get(position_id[pos_key], set()):
+                candidate = node_names[nid - 1]
+                if candidate == exact_name:
+                    continue
+                counts[candidate] = counts.get(candidate, 0) + 1
+        for candidate, count in counts.items():
+            add_edge(candidate, exact_name, "preserved_co_membership", count / float(total))
+
+    parent_candidates = {}
+    for (_parent_id, child_id, edge_kind), score in edge_records.items():
+        parent_candidates.setdefault(child_id, []).append((edge_kind, score, _parent_id))
+
+    precedence = {"lexical_hierarchy": 0, "canonical_line_named_prefix": 1, "preserved_co_membership": 2}
+    canonical_parent = {}
+    for child_id, choices in parent_candidates.items():
+        canonical_parent[child_id] = min(choices, key=lambda x: (precedence[x[0]], -x[1], x[2], edge_records[(x[2], child_id, x[0])]))
+
+    family_edges = []
+    for (parent_id, child_id, edge_kind), score in sorted(edge_records.items()):
+        is_ui = 1 if (child_id in canonical_parent and canonical_parent[child_id][2] == parent_id and canonical_parent[child_id][0] == edge_kind) else 0
+        family_edges.append((parent_id, child_id, edge_kind, score, is_ui))
+
+    family_memberships = []
+    for exact_name, line in canonical_by_exact.items():
+        exact_id = node_id[exact_name]
+        for member in split_nodes_by_exact[exact_name]:
+            family_memberships.append((node_id[member], exact_id, "lexical_path_member"))
+        for pos_key in line.position_keys:
+            for nid in sorted(membership_nodes_by_position.get(position_id[pos_key], set())):
+                if nid != exact_id:
+                    family_memberships.append((nid, exact_id, "canonical_line_membership_overlap"))
+    family_memberships = sorted(set(family_memberships))
+
+    ui_tree = []
+    for child_id in sorted(canonical_parent):
+        _, _score, parent_id = canonical_parent[child_id]
+        ui_tree.append((child_id, parent_id, 1))
+
+    canonical_exact_names = sorted(canonical_by_exact)
+    transposition_edges = []
+    for i, a in enumerate(canonical_exact_names):
+        pa = canonical_by_exact[a]
+        posa = {k: idx for idx, k in enumerate(pa.position_keys)}
+        for b in canonical_exact_names[i + 1:]:
+            pb = canonical_by_exact[b]
+            if " ".join(pa.uci_moves) == " ".join(pb.uci_moves):
+                continue
+            posb = {k: idx for idx, k in enumerate(pb.position_keys)}
+            shared = sorted(set(posa).intersection(posb))
+            non_root = [k for k in shared if posa[k] > 0 and posb[k] > 0]
+            if not non_root:
+                continue
+            earliest = min(min(posa[k], posb[k]) for k in non_root)
+            transposition_edges.append((node_id[a], node_id[b], len(non_root), earliest, "shared_position_convergence"))
+
+    return family_edges, family_memberships, transposition_edges, ui_tree
+
+
+def build_artifact(source_root: Path, output_root: Path, bundle_name: str, artifact_kind: str = "opening_locked_openings"):
+    family_enabled = artifact_kind == "opening_locked_openings_family_v1"
     rows, source_files = read_rows(source_root)
     parsed = sorted([parse_line(r) for r in rows], key=lambda p: (p.row.name, len(p.uci_moves), " ".join(p.uci_moves), p.row.source_file, p.row.source_row_number))
     exact_names = sorted({p.row.name for p in parsed})
@@ -421,7 +521,7 @@ def build_artifact(source_root: Path, output_root: Path, bundle_name: str):
     if db_path.exists():
         db_path.unlink()
     con = sqlite3.connect(db_path)
-    con.executescript("""
+    schema_sql = """
 create table meta(key text primary key, value text not null);
 create table source_files(source_file_id integer primary key, filename text not null unique, sha256 text not null, row_count integer not null);
 create table opening_nodes(node_id integer primary key, node_name text not null unique, node_kind text not null, canonical_exact_name text not null, family_depth integer not null, shortest_total_ply integer not null);
@@ -430,7 +530,15 @@ create table positions(position_id integer primary key, position_key text not nu
 create table exact_lines(line_id integer primary key, exact_node_id integer not null, eco text not null, source_file_id integer not null, source_row_number integer not null, opening_name text not null, pgn text not null, uci_line text not null, total_ply integer not null, terminal_position_id integer not null, is_shortest_for_name integer not null);
 create table path_memberships(position_id integer not null, node_id integer not null, min_remaining_plies integer not null, is_terminal_for_exact integer not null, primary key (position_id, node_id));
 create table node_moves(node_id integer not null, from_position_id integer not null, move_uci text not null, to_position_id integer not null, support_count integer not null, is_canonical integer not null, primary key (node_id, from_position_id, move_uci, to_position_id));
-""")
+"""
+    if family_enabled:
+        schema_sql += """
+create table family_edges(parent_node_id integer not null, child_node_id integer not null, edge_kind text not null, evidence_score real not null, is_canonical_ui_parent integer not null, primary key(parent_node_id, child_node_id, edge_kind));
+create table family_memberships(family_node_id integer not null, member_node_id integer not null, membership_kind text not null, primary key(family_node_id, member_node_id, membership_kind));
+create table transposition_edges(from_node_id integer not null, to_node_id integer not null, shared_position_count integer not null, earliest_shared_ply integer not null, relationship_kind text not null, primary key(from_node_id, to_node_id, relationship_kind));
+create table ui_tree(child_node_id integer primary key, ui_parent_node_id integer not null, selection_depth integer not null);
+"""
+    con.executescript(schema_sql)
 
     source_file_id = {sf["filename"]: i + 1 for i, sf in enumerate(source_files)}
     con.executemany("insert into source_files(source_file_id,filename,sha256,row_count) values(?,?,?,?)", [(source_file_id[sf["filename"]], sf["filename"], sf["sha256"], sf["row_count"]) for sf in source_files])
@@ -492,15 +600,31 @@ create table node_moves(node_id integer not null, from_position_id integer not n
     node_move_rows = [(k[0], k[1], k[2], k[3], move_counts[k], 1 if k in canonical_keys else 0) for k in sorted(move_counts)]
     con.executemany("insert into node_moves(node_id,from_position_id,move_uci,to_position_id,support_count,is_canonical) values(?,?,?,?,?,?)", node_move_rows)
 
-    con.executemany("insert into meta(key,value) values(?,?)", sorted([("artifact_schema_version", "1"), ("artifact_kind", "opening_locked_openings"), ("position_key_format", "fen_pieces_side_castling_legal_ep")]))
+    family_edges, family_memberships, transposition_edges, ui_tree = [], [], [], []
+    if family_enabled:
+        split_nodes_by_exact = {n: split_name_nodes(n) for n in exact_names}
+        family_edges, family_memberships, transposition_edges, ui_tree = _derive_family_tables(node_names, node_id, kind, parsed, split_nodes_by_exact, memberships, position_id)
+        con.executemany("insert into family_edges(parent_node_id,child_node_id,edge_kind,evidence_score,is_canonical_ui_parent) values(?,?,?,?,?)", family_edges)
+        con.executemany("insert into family_memberships(family_node_id,member_node_id,membership_kind) values(?,?,?)", family_memberships)
+        con.executemany("insert into transposition_edges(from_node_id,to_node_id,shared_position_count,earliest_shared_ply,relationship_kind) values(?,?,?,?,?)", transposition_edges)
+        con.executemany("insert into ui_tree(child_node_id,ui_parent_node_id,selection_depth) values(?,?,?)", ui_tree)
+
+    meta_rows = [("artifact_schema_version", "2" if family_enabled else "1"), ("artifact_kind", artifact_kind), ("position_key_format", "fen_pieces_side_castling_legal_ep")]
+    if family_enabled:
+        meta_rows.extend([
+            ("canonical_ui_parent_rule", "lexical_hierarchy_then_canonical_line_named_prefix_then_preserved_co_membership_then_lexical_tiebreak"),
+            ("family_derivation_rules", "lexical_hierarchy|canonical_line_earlier_named_positions|path_membership_overlap"),
+            ("transposition_detection_rule", "shared_non_root_position_keys_between_distinct_canonical_exact_lines"),
+        ])
+    con.executemany("insert into meta(key,value) values(?,?)", sorted(meta_rows))
     con.commit()
     con.close()
 
     gp = git_provenance(source_root)
     manifest = {
-        "artifact_schema_version": "1",
+        "artifact_schema_version": "2" if family_enabled else "1",
         "artifact_id": bundle_name,
-        "artifact_kind": "opening_locked_openings",
+        "artifact_kind": artifact_kind,
         "source_kind": "lichess_chess_openings_git_repo",
         "source_repo_url": gp["source_repo_url"],
         "source_branch": gp["source_branch"],
@@ -518,6 +642,19 @@ create table node_moves(node_id integer not null, from_position_id integer not n
         "canonical_continuation_rule": "shortest remaining exact descendant; tiebreak exact name then uci line",
         "bundle_files": ["manifest.json", "opening_locked_openings.sqlite"],
     }
+    if family_enabled:
+        manifest.update({
+            "family_edge_count": len(family_edges),
+            "transposition_edge_count": len(transposition_edges),
+            "ui_tree_node_count": len(ui_tree),
+            "family_derivation_rules": [
+                "lexical_hierarchy",
+                "canonical_line_earlier_named_positions",
+                "path_membership_overlap",
+            ],
+            "canonical_ui_parent_rule": "lexical_hierarchy_then_canonical_line_named_prefix_then_preserved_co_membership_then_lexical_tiebreak",
+            "transposition_detection_rule": "shared_non_root_position_keys_between_distinct_canonical_exact_lines",
+        })
     (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return bundle
 
@@ -527,8 +664,9 @@ def main():
     ap.add_argument("--source-root", required=True)
     ap.add_argument("--output-root", required=True)
     ap.add_argument("--bundle-name", default="opening_locked_lichess_openings_v1")
+    ap.add_argument("--artifact-kind", default="opening_locked_openings", choices=["opening_locked_openings", "opening_locked_openings_family_v1"])
     args = ap.parse_args()
-    build_artifact(Path(args.source_root), Path(args.output_root), args.bundle_name)
+    build_artifact(Path(args.source_root), Path(args.output_root), args.bundle_name, artifact_kind=args.artifact_kind)
 
 
 if __name__ == "__main__":
