@@ -335,6 +335,42 @@ def split_name_nodes(name):
     return out
 
 
+def normalize_opening_name_for_affinity(name):
+    text = name.casefold()
+    text = re.sub(r"[:;,/()\[\]{}\-]+", " ", text)
+    text = re.sub(r"[^\w\s']", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def opening_family_stem(name):
+    head = name.split(":", 1)[0].strip()
+    if "," in head:
+        head = head.split(",", 1)[0].strip()
+    return head
+
+
+def is_generic_predecessor_opening(name):
+    norm = normalize_opening_name_for_affinity(opening_family_stem(name))
+    if norm in {"indian defense", "east indian defense"}:
+        return True
+    if norm.endswith("pawn game"):
+        return True
+    return False
+
+
+def canonical_parent_name_affinity(parent_name, child_name):
+    parent_stem = normalize_opening_name_for_affinity(opening_family_stem(parent_name))
+    child_stem = normalize_opening_name_for_affinity(opening_family_stem(child_name))
+    if not parent_stem or not child_stem:
+        return False
+    if parent_stem != child_stem:
+        return False
+    if is_generic_predecessor_opening(parent_name):
+        return False
+    return True
+
+
 def read_rows(source_root: Path):
     rows = []
     source_files = []
@@ -421,6 +457,10 @@ def _derive_family_tables(node_names, node_id, kind, parsed, split_nodes_by_exac
         for i, pos_key in enumerate(line.position_keys[:-1]):
             for earlier_exact in sorted(term_pos_to_exact.get(pos_key, set())):
                 if earlier_exact != exact_name:
+                    if is_generic_predecessor_opening(earlier_exact):
+                        continue
+                    if not canonical_parent_name_affinity(earlier_exact, exact_name):
+                        continue
                     add_edge(earlier_exact, exact_name, "canonical_line_named_prefix", 1.0 / (len(line.position_keys) - i))
 
     parent_candidates = {}

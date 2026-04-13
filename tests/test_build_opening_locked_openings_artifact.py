@@ -199,7 +199,7 @@ def test_family_artifact_derivation_and_manifest(tmp_path: Path):
         ).fetchone()[0]
         assert lexical_edge == 1
 
-        # earlier named opening on canonical line becomes a parent candidate
+        # generic predecessor openings do not become canonical-line family parents
         named_prefix_edge = con.execute(
             """
             select count(*)
@@ -211,7 +211,7 @@ def test_family_artifact_derivation_and_manifest(tmp_path: Path):
               and fe.edge_kind='canonical_line_named_prefix'
             """
         ).fetchone()[0]
-        assert named_prefix_edge == 1
+        assert named_prefix_edge == 0
 
         # transposition detection emits explicit shared-position edges
         transposition_cnt = con.execute(
@@ -228,7 +228,7 @@ def test_family_artifact_derivation_and_manifest(tmp_path: Path):
         ).fetchone()[0]
         assert transposition_cnt == 1
 
-        # ui_tree has exactly one canonical parent per child when multiple parent candidates exist
+        # ui_tree leaves uncertain relationships as roots
         ui_count = con.execute(
             """
             select count(*)
@@ -237,7 +237,7 @@ def test_family_artifact_derivation_and_manifest(tmp_path: Path):
             where c.node_name='Nimzo-Indian Defense'
             """
         ).fetchone()[0]
-        assert ui_count == 1
+        assert ui_count == 0
 
         internal_parent_candidates = con.execute(
             """
@@ -247,7 +247,7 @@ def test_family_artifact_derivation_and_manifest(tmp_path: Path):
             where c.node_name='Nimzo-Indian Defense'
             """
         ).fetchone()[0]
-        assert internal_parent_candidates >= 1
+        assert internal_parent_candidates == 0
 
         preserved_membership_edges = con.execute(
             """
@@ -257,6 +257,134 @@ def test_family_artifact_derivation_and_manifest(tmp_path: Path):
             """
         ).fetchone()[0]
         assert preserved_membership_edges == 0
+    finally:
+        con.close()
+
+
+def _write_affinity_guard_source(root: Path):
+    rows = [
+        ("A40", "Queen's Pawn Game", "1.d4 Nf6"),
+        ("A46", "Indian Defense", "1.d4 Nf6"),
+        ("A46", "East Indian Defense", "1.d4 Nf6"),
+        ("D02", "London System", "1.d4 Nf6 2.Bf4"),
+        ("D02", "London System, with Bd3", "1.d4 Nf6 2.Bf4 d5 3.e3 e6 4.Bd3"),
+        ("D02", "London System, with Be2", "1.d4 Nf6 2.Bf4 d5 3.e3 e6 4.Be2"),
+        ("C00", "King's Pawn Game", "1.e4 e6"),
+        ("C00", "French Defense", "1.e4 e6"),
+        ("C01", "French Defense: Exchange Variation", "1.e4 e6 2.d4 d5 3.exd5 exd5"),
+        ("A10", "English Opening", "1.c4"),
+        ("A11", "Nimzo Indian Defense", "1.d4 Nf6 2.c4 e6 3.Nc3 Bb4"),
+        ("A12", "Nimzo-Indian Defense: Rubinstein Variation", "1.d4 Nf6 2.c4 e6 3.Nc3 Bb4 4.e3"),
+    ]
+    for fn in ["a.tsv", "b.tsv", "c.tsv", "d.tsv", "e.tsv"]:
+        lines = ["eco\tname\tpgn"]
+        if fn == "a.tsv":
+            for eco, name, pgn in rows:
+                lines.append(f"{eco}\t{name}\t{pgn}")
+        (root / fn).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_family_affinity_gating_and_generic_predecessor_regressions(tmp_path: Path):
+    src = tmp_path / "src"
+    out = tmp_path / "out"
+    src.mkdir(); out.mkdir()
+    _write_affinity_guard_source(src)
+
+    bundle = build_artifact(src, out, "family_affinity_guard", artifact_kind="opening_locked_openings_family_v1")
+    con = _open_db(bundle)
+    try:
+        london_bad_parent = con.execute(
+            """
+            select count(*)
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            join opening_nodes p on p.node_id=ut.ui_parent_node_id
+            where c.node_name='London System'
+              and p.node_name='East Indian Defense'
+            """
+        ).fetchone()[0]
+        assert london_bad_parent == 0
+
+        french_bad_parent = con.execute(
+            """
+            select count(*)
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            join opening_nodes p on p.node_id=ut.ui_parent_node_id
+            where c.node_name='French Defense'
+              and p.node_name='King''s Pawn Game'
+            """
+        ).fetchone()[0]
+        assert french_bad_parent == 0
+
+        london_bd3_parent = con.execute(
+            """
+            select p.node_name
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            join opening_nodes p on p.node_id=ut.ui_parent_node_id
+            where c.node_name='London System, with Bd3'
+            """
+        ).fetchone()
+        assert london_bd3_parent == ("London System",)
+
+        london_be2_parent = con.execute(
+            """
+            select p.node_name
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            join opening_nodes p on p.node_id=ut.ui_parent_node_id
+            where c.node_name='London System, with Be2'
+            """
+        ).fetchone()
+        assert london_be2_parent == ("London System",)
+
+        french_exchange_parent = con.execute(
+            """
+            select p.node_name
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            join opening_nodes p on p.node_id=ut.ui_parent_node_id
+            where c.node_name='French Defense: Exchange Variation'
+            """
+        ).fetchone()
+        assert french_exchange_parent == ("French Defense",)
+
+        english_root = con.execute(
+            """
+            select count(*)
+            from ui_tree ut
+            join opening_nodes c on c.node_id=ut.child_node_id
+            where c.node_name='English Opening'
+            """
+        ).fetchone()[0]
+        assert english_root == 0
+
+        generic_parent_edges = con.execute(
+            """
+            select count(*)
+            from family_edges fe
+            join opening_nodes p on p.node_id=fe.parent_node_id
+            join opening_nodes c on c.node_id=fe.child_node_id
+            where fe.edge_kind='canonical_line_named_prefix'
+              and p.node_name in ('King''s Pawn Game', 'Queen''s Pawn Game', 'Indian Defense', 'East Indian Defense')
+              and c.node_name in ('French Defense', 'London System')
+            """
+        ).fetchone()[0]
+        assert generic_parent_edges == 0
+
+        punctuation_affinity = con.execute(
+            """
+            select count(*)
+            from family_edges fe
+            join opening_nodes p on p.node_id=fe.parent_node_id
+            join opening_nodes c on c.node_id=fe.child_node_id
+            where p.node_name='Nimzo Indian Defense'
+              and c.node_name='Nimzo-Indian Defense: Rubinstein Variation'
+              and fe.edge_kind='canonical_line_named_prefix'
+            """
+        ).fetchone()[0]
+        assert punctuation_affinity == 1
     finally:
         con.close()
 
