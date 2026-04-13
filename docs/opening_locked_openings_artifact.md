@@ -91,6 +91,12 @@ Both artifact kinds preserve the exact-opening tables:
 - `lexical_hierarchy`
 - `canonical_line_named_prefix`
 
+`canonical_line_named_prefix` is affinity-gated:
+
+- canonical-line parent candidates must pass conservative family-name affinity
+- broad predecessor labels (for example pawn-game and generic Indian-defense labels) are excluded as UI-parent sources when they only appear as earlier named line entries
+- when affinity is uncertain, no canonical-line parent edge is emitted and the node is allowed to stay a root in `ui_tree`
+
 ### Transposition relationships (not a tree)
 
 - `transposition_edges(from_node_id, to_node_id, shared_position_count, earliest_shared_ply, relationship_kind)`
@@ -108,7 +114,7 @@ It intentionally does not use shared-position overlap or transposition evidence 
 Canonical parent precedence:
 
 1. `lexical_hierarchy`
-2. `canonical_line_named_prefix`
+2. `canonical_line_named_prefix` (only when family-name affinity passes and generic predecessor exclusion does not trigger)
 3. lexical tie-break by node id
 
 ## Manifest additions for family-aware artifacts
